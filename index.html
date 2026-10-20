@@ -678,7 +678,7 @@ async function renderDealPanel(leadId, propertyId, dp, pp) {
   dp.append(el("h3", { text: "Contracts", style: "margin-top:16px" }));
   dp.append(el("p", { class: "note", text: "Texas law requires a written notice to the seller and to any end buyer that you are selling only " +
     "your interest in the purchase contract and do not hold title. BAP won't let a Texas contract be marked sent or signed until that's recorded." }));
-  for (const c of data.contracts || []) dp.append(contractRow(c, leadId, propertyId, dp, pp));
+  for (const c of data.contracts || []) dp.append(contractRow(c, leadId, propertyId, dp, pp, data.org));
   // new contract form
   const kind = el("select", { id: "cKind" }, el("option", { value: "purchase", text: "Purchase (you buy from the seller)" }),
     el("option", { value: "assignment", text: "Assignment (you assign to an end buyer)" }));
@@ -706,7 +706,7 @@ async function renderDealPanel(leadId, propertyId, dp, pp) {
     renderPipePanel(propertyId, pp);
   };
 }
-function contractRow(c, leadId, propertyId, dp, pp) {
+function contractRow(c, leadId, propertyId, dp, pp, org) {
   const v = c.values || {};
   const who = c.kind === "assignment" ? "buyer" : "seller";
   const disclosed = v["disclosed_to_" + who + "_at"];
@@ -733,7 +733,34 @@ function contractRow(c, leadId, propertyId, dp, pp) {
   if (c.status === "drafted") go("sent", "Mark sent");
   if (["drafted", "sent", "viewed"].includes(c.status)) go("signed", "Mark signed");
   if (!["signed", "voided"].includes(c.status)) go("voided", "Void");
-  row.append(act, msg);
+  // documents: the attorney-template draft and the signed copy, stored privately per company
+  const files = el("div", { class: "row2" });
+  const openBtn = (label, path) => { const b = el("button", { class: "link", type: "button", text: label });
+    b.onclick = async () => { const r = await sb.storage.from("contracts").createSignedUrl(path, 300);
+      if (r.error) msg.textContent = "Couldn't open: " + r.error.message; else window.open(r.data.signedUrl, "_blank", "noopener"); };
+    files.append(b); };
+  const upBtn = (label, which) => {
+    const input = el("input", { type: "file", accept: ".pdf,.docx,.jpg,.jpeg,.png", class: "hidden" });
+    const b = el("button", { class: "ghost small", type: "button", text: label });
+    b.onclick = () => input.click();
+    input.onchange = async () => {
+      const f = input.files[0]; if (!f) return;
+      if (f.size > 20 * 1024 * 1024) { msg.textContent = "That file is over 20 MB."; return; }
+      msg.textContent = "Uploading…";
+      const safe = f.name.replace(/[^A-Za-z0-9._-]+/g, "_").slice(-80);
+      const path = org + "/" + c.id + "/" + which + "-" + Date.now() + "-" + safe;
+      const up = await sb.storage.from("contracts").upload(path, f, { contentType: f.type || undefined });
+      if (up.error) { msg.textContent = "Upload failed: " + up.error.message; return; }
+      const r = await sb.rpc("attach_contract_file", { p_contract: c.id, p_path: path, p_which: which });
+      if (r.error) msg.textContent = r.error.message; else refresh();
+    };
+    files.append(b, input);
+  };
+  if (c.draft_path) openBtn("Open draft", c.draft_path);
+  if (c.signed_path) openBtn("Open signed copy", c.signed_path);
+  if (c.status !== "voided") upBtn(c.draft_path ? "Replace draft" : "Upload draft", "draft");
+  if (c.status !== "voided") upBtn(c.signed_path ? "Replace signed copy" : "Upload signed copy", "signed");
+  row.append(act, files, msg);
   return row;
 }
 async function loadVault() {
