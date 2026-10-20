@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>BAP Leads</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏚️</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #ffffff; --panel: #f5f7fa; --line: #dde3ea; --ink: #16202b; --muted: #5b6876;
+  --brand: #1d3557; --brand-ink: #ffffff; --focus: #2f6fdb;
+  --sale: #b42318; --sale-bg: #fdecea; --tax: #9a5b00; --tax-bg: #fff4dd;
+  --code: #3b4a5c; --code-bg: #eaeef3; --ok: #1f7a4d;
+  --radius: 6px;
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0f1722; --panel: #16212f; --line: #283646; --ink: #e6ecf2; --muted: #9aa8b7;
+    --brand: #8fb3e6; --brand-ink: #0f1722; --focus: #8fb3e6;
+    --sale: #ff8a7a; --sale-bg: #3a1b18; --tax: #f2b955; --tax-bg: #33270f;
+    --code: #c3cfdc; --code-bg: #223042; --ok: #6fd3a0;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0f1722; --panel: #16212f; --line: #283646; --ink: #e6ecf2; --muted: #9aa8b7;
+  --brand: #8fb3e6; --brand-ink: #0f1722; --focus: #8fb3e6;
+  --sale: #ff8a7a; --sale-bg: #3a1b18; --tax: #f2b955; --tax-bg: #33270f;
+  --code: #c3cfdc; --code-bg: #223042; --ok: #6fd3a0;
+}
+*, *::before, *::after { box-sizing: inherit; }
+html { height: 100%; scroll-padding-top: env(safe-area-inset-top, 0px); }
+body { margin: 0; min-height: 100%; background: var(--bg); color: var(--ink);
+  font: 15px/1.5 "Public Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-variant-numeric: tabular-nums; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--brand); }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.hidden { display: none !important; }
+
+/* top bar */
+header.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; display: flex; align-items: center; gap: 16px;
+  padding: 10px 20px; background: var(--brand); color: var(--brand-ink); }
+.mark { font-weight: 700; font-size: 18px; letter-spacing: .02em; }
+.bar .spacer { flex: 1; }
+.bar button { background: transparent; border: 1px solid currentColor; color: inherit; border-radius: var(--radius);
+  padding: 5px 12px; cursor: pointer; }
+.bar .who { opacity: .85; font-size: 14px; }
+
+/* sign in */
+.auth { max-width: 380px; margin: 12vh auto; padding: 0 20px; }
+.auth h1 { font-size: 26px; line-height: 1.2; margin: 0 0 6px; }
+.auth p { color: var(--muted); margin: 0 0 22px; }
+.field { display: grid; gap: 4px; margin-bottom: 14px; }
+.field label { font-size: 13px; font-weight: 600; }
+.field input, .field select { padding: 9px 11px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+.primary { background: var(--brand); color: var(--brand-ink); border: 0; border-radius: var(--radius); padding: 10px 16px;
+  font-weight: 600; cursor: pointer; }
+.link { background: none; border: 0; color: var(--focus); padding: 0; cursor: pointer; text-decoration: underline; }
+.msg { margin-top: 14px; font-size: 14px; }
+.msg.err { color: var(--sale); }
+
+/* app layout */
+.app { display: grid; grid-template-columns: 270px minmax(0, 1fr); min-height: calc(100vh - 52px); }
+aside.filters { border-right: 1px solid var(--line); background: var(--panel); padding: 18px; overflow: auto; }
+aside.filters h2 { font-size: 13px; font-weight: 700; margin: 18px 0 8px; color: var(--muted); }
+aside.filters h2:first-child { margin-top: 0; }
+.checks { display: grid; gap: 6px; }
+.checks label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.checks .n { margin-left: auto; color: var(--muted); font-size: 13px; }
+.row2 { display: flex; gap: 8px; align-items: center; }
+input[type=range] { width: 100%; accent-color: var(--brand); }
+.filters select, .filters input[type=search] { width: 100%; padding: 8px 10px; border: 1px solid var(--line);
+  border-radius: var(--radius); background: var(--bg); }
+.saved { display: grid; gap: 8px; }
+.ghost { background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 7px 12px; cursor: pointer; }
+
+main.results { padding: 18px 22px; min-width: 0; }
+.toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+.count { font-size: 20px; font-weight: 700; }
+.count small { font-size: 14px; font-weight: 400; color: var(--muted); margin-left: 6px; }
+.toolbar .spacer { flex: 1; }
+.filters-toggle { display: none; }
+
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); }
+table { border-collapse: collapse; width: 100%; min-width: 860px; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 13px; font-weight: 600; color: var(--muted); background: var(--panel); white-space: nowrap; }
+td.num, th.num { text-align: right; }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: var(--panel); }
+tbody tr:last-child td { border-bottom: 0; }
+.addr { font-weight: 600; }
+.sub { color: var(--muted); font-size: 13px; }
+.score { display: inline-grid; place-items: center; min-width: 36px; height: 26px; border-radius: 13px;
+  font-weight: 700; font-size: 13px; background: var(--code-bg); color: var(--code); }
+.score.hot { background: var(--sale-bg); color: var(--sale); }
+.score.warm { background: var(--tax-bg); color: var(--tax); }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 10px; background: var(--code-bg); color: var(--code); white-space: nowrap; }
+.chip.pre_foreclosure, .chip.foreclosure_sale { background: var(--sale-bg); color: var(--sale); }
+.chip.tax_delinquent, .chip.tax_sale { background: var(--tax-bg); color: var(--tax); }
+.countdown { font-weight: 700; color: var(--sale); white-space: nowrap; }
+.countdown.later { color: var(--ink); font-weight: 600; }
+.pager { display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 12px; }
+.empty { padding: 48px 20px; text-align: center; color: var(--muted); }
+
+/* detail drawer */
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(520px, 100%); background: var(--bg);
+  border-left: 1px solid var(--line); box-shadow: -12px 0 32px rgba(10, 20, 35, .18); z-index: 20;
+  transform: translateX(100%); transition: transform .22s ease; overflow: auto;
+  padding: calc(env(safe-area-inset-top, 0px) + 18px) 22px calc(env(safe-area-inset-bottom, 0px) + 24px); }
+.drawer.open { transform: none; }
+.drawer h2 { font-size: 22px; line-height: 1.25; margin: 0 0 2px; }
+.drawer .close { float: right; }
+.facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; margin: 18px 0; }
+.facts div { font-size: 14px; }
+.facts b { display: block; font-size: 12px; font-weight: 600; color: var(--muted); }
+.event { border-top: 1px solid var(--line); padding: 14px 0; }
+.event h3 { font-size: 15px; margin: 0 0 4px; }
+.event dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 6px 0 0; font-size: 14px; }
+.event dt { color: var(--muted); }
+.event dd { margin: 0; }
+.note { font-size: 13px; color: var(--muted); }
+.scrim { position: fixed; inset: 0; background: rgba(10, 20, 35, .35); z-index: 15; }
+
+@media (max-width: 860px) {
+  .app { grid-template-columns: 1fr; }
+  aside.filters { position: fixed; inset: 0 0 0 auto; width: min(320px, 90%); z-index: 18; transform: translateX(-100%);
+    left: 0; right: auto; transition: transform .22s ease; padding-top: calc(env(safe-area-inset-top, 0px) + 18px); }
+  aside.filters.open { transform: none; }
+  .filters-toggle { display: inline-block; }
+  main.results { padding: 14px; }
+  header.bar { padding: 10px 14px; }
+}
+@media (prefers-reduced-motion: reduce) { .drawer, aside.filters { transition: none; } }
+</style>
+</head>
+<body>
+<header class="bar">
+  <span class="mark">BAP Leads</span>
+  <span class="spacer"></span>
+  <span class="who" id="who"></span>
+  <button id="signout" class="hidden" type="button">Sign out</button>
+</header>
+
+<section class="auth hidden" id="auth">
+  <h1 id="authTitle">Sign in to your leads</h1>
+  <p id="authBlurb">Foreclosure notices, unpaid taxes and code complaints from county records, scored and ready to work.</p>
+  <form id="authForm">
+    <div class="field"><label for="email">Email</label><input id="email" type="email" autocomplete="email" required></div>
+    <div class="field"><label for="password">Password</label><input id="password" type="password" autocomplete="current-password" minlength="8" required></div>
+    <button class="primary" id="authBtn" type="submit">Sign in</button>
+  </form>
+  <p class="msg" id="authMsg" role="status"></p>
+  <p class="note"><button class="link" id="authSwap" type="button">Create an account instead</button></p>
+</section>
+
+<div class="app hidden" id="app">
+  <aside class="filters" id="filters" aria-label="Filters">
+    <h2>County</h2>
+    <div class="checks" id="fCounties"></div>
+    <h2>Lead type</h2>
+    <div class="checks" id="fKinds"></div>
+    <h2>Owner</h2>
+    <div class="checks" id="fFlags"></div>
+    <h2>Auction date</h2>
+    <select id="fSale">
+      <option value="">Any time</option><option value="14">Within 14 days</option>
+      <option value="30">Within 30 days</option><option value="60">Within 60 days</option>
+    </select>
+    <h2>Minimum score: <span id="fScoreVal">0</span></h2>
+    <input type="range" id="fScore" min="0" max="100" step="5" value="0">
+    <h2>Search</h2>
+    <input type="search" id="fQ" placeholder="Street, zip or owner">
+    <h2>Saved lists</h2>
+    <div class="saved">
+      <select id="savedSel"><option value="">Choose a saved list</option></select>
+      <div class="row2">
+        <button class="ghost" id="saveList" type="button">Save current filters</button>
+        <button class="ghost" id="delList" type="button">Delete</button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="results">
+    <div class="toolbar">
+      <button class="ghost filters-toggle" id="openFilters" type="button">Filters</button>
+      <span class="count" id="count">0 leads</span>
+      <span class="spacer"></span>
+      <label for="sort" class="sub">Sort by</label>
+      <select id="sort" class="ghost">
+        <option value="score">Highest score</option><option value="sale">Soonest auction</option>
+        <option value="value">Highest value</option><option value="newest">Newest signal</option>
+      </select>
+      <button class="ghost" id="csv" type="button">Download CSV</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Score</th><th>Property</th><th>Owner</th><th>Signals</th><th>Auction</th>
+          <th class="num">Taxes owed</th><th class="num">Assessed</th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div class="empty hidden" id="empty">No leads match these filters. Clear a filter or lower the minimum score.</div>
+    </div>
+    <div class="pager">
+      <button class="ghost" id="prev" type="button">Previous</button>
+      <span class="sub" id="pageInfo"></span>
+      <button class="ghost" id="next" type="button">Next</button>
+    </div>
+  </main>
+</div>
+
+<div class="scrim hidden" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-label="Lead detail" aria-hidden="true">
+  <button class="ghost close" id="closeDrawer" type="button">Close</button>
+  <div id="detail"></div>
+</aside>
+
+<script>
+const SUPABASE_URL = "https://rpcdrgzcaarggupctede.supabase.co";
+const SUPABASE_KEY = "sb_publishable_qyI3EzhYghqCmRnhu41ucg_lhzhufqt";   // publishable: safe in a browser, data protected by row-level security
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const PAGE = 100;
+
+const KINDS = {
+  pre_foreclosure: "Pre-foreclosure", foreclosure_sale: "Foreclosure sale", tax_delinquent: "Tax delinquent",
+  tax_sale: "Tax sale", code_violation: "Code complaints", probate: "Probate", vacant: "Vacant",
+  other: "Unregistered rental"
+};
+const FLAGS = { absentee: "Absentee owner", out_of_state: "Out-of-state owner", senior: "Senior (65+)",
+  corporate: "Company-owned", homestead: "Owner lives there", high_equity: "High equity (50%+)" };
+
+const $ = (id) => document.getElementById(id);
+const el = (tag, attrs = {}, ...kids) => {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") n.className = v; else if (k === "text") n.textContent = v; else n.setAttribute(k, v);
+  }
+  for (const k of kids) if (k != null) n.append(k.nodeType ? k : document.createTextNode(String(k)));
+  return n;
+};
+const money = (v) => v == null ? "" : "$" + Math.round(Number(v)).toLocaleString("en-US");
+const title = (s) => (s || "").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+const daysUntil = (d) => d ? Math.round((new Date(d + "T00:00:00") - new Date(new Date().toDateString())) / 864e5) : null;
+
+let state = { page: 0, total: 0, rows: [] };
+let signUp = false;
+
+/* ---------- auth ---------- */
+function showAuth() { $("auth").classList.remove("hidden"); $("app").classList.add("hidden"); $("signout").classList.add("hidden"); $("who").textContent = ""; }
+async function showApp(user) {
+  $("auth").classList.add("hidden"); $("app").classList.remove("hidden");
+  $("signout").classList.remove("hidden"); $("who").textContent = user.email;
+  await loadCounties(); buildStaticFilters(); await loadSaved(); await search();
+}
+$("authSwap").onclick = () => {
+  signUp = !signUp;
+  $("authTitle").textContent = signUp ? "Create your account" : "Sign in to your leads";
+  $("authBtn").textContent = signUp ? "Create account" : "Sign in";
+  $("authSwap").textContent = signUp ? "I already have an account" : "Create an account instead";
+  $("password").autocomplete = signUp ? "new-password" : "current-password";
+  $("authMsg").textContent = "";
+};
+$("authForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const email = $("email").value.trim(), password = $("password").value;
+  $("authMsg").className = "msg"; $("authMsg").textContent = signUp ? "Creating account…" : "Signing in…";
+  const res = signUp
+    ? await sb.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + location.pathname } })
+    : await sb.auth.signInWithPassword({ email, password });
+  if (res.error) { $("authMsg").className = "msg err"; $("authMsg").textContent = res.error.message; return; }
+  if (signUp && !res.data.session) { $("authMsg").textContent = "Check your email for a confirmation link, then sign in here."; return; }
+  $("authMsg").textContent = "";
+};
+$("signout").onclick = () => sb.auth.signOut();
+sb.auth.onAuthStateChange((_evt, session) => { session ? showApp(session.user) : showAuth(); });
+
+/* ---------- filters ---------- */
+async function loadCounties() {
+  const box = $("fCounties"); box.textContent = "";
+  const { data: src, error } = await sb.from("data_sources").select("county").eq("active", true);
+  const names = [...new Set((src || []).map((r) => r.county))].sort();
+  for (const c of names) box.append(el("label", {}, el("input", { type: "checkbox", value: c, "data-f": "county" }), c));
+  if (!names.length && !error) box.append(el("span", { class: "sub", text: "No counties loaded yet" }));
+}
+function buildStaticFilters() {
+  const k = $("fKinds"); if (!k.childElementCount)
+    for (const [v, t] of Object.entries(KINDS)) k.append(el("label", {}, el("input", { type: "checkbox", value: v, "data-f": "kind" }), t));
+  const f = $("fFlags"); if (!f.childElementCount)
+    for (const [v, t] of Object.entries(FLAGS)) f.append(el("label", {}, el("input", { type: "checkbox", value: v, "data-f": "flag" }), t));
+}
+const checked = (box) => [...$(box).querySelectorAll("input:checked")].map((i) => i.value);
+function filters() {
+  return { counties: checked("fCounties"), kinds: checked("fKinds"), flags: checked("fFlags"),
+    sale: $("fSale").value, score: +$("fScore").value, q: $("fQ").value.trim(), sort: $("sort").value };
+}
+function applyFilters(f) {
+  for (const [box, vals] of [["fCounties", f.counties], ["fKinds", f.kinds], ["fFlags", f.flags]])
+    $(box).querySelectorAll("input").forEach((i) => { i.checked = (vals || []).includes(i.value); });
+  $("fSale").value = f.sale || ""; $("fScore").value = f.score || 0; $("fScoreVal").textContent = f.score || 0;
+  $("fQ").value = f.q || ""; $("sort").value = f.sort || "score";
+}
+let timer;
+const refresh = () => { clearTimeout(timer); timer = setTimeout(() => { state.page = 0; search(); }, 250); };
+document.addEventListener("change", (e) => { if (e.target.closest("#filters") || e.target.id === "sort") refresh(); });
+$("fQ").addEventListener("input", refresh);
+$("fScore").addEventListener("input", () => { $("fScoreVal").textContent = $("fScore").value; refresh(); });
+
+/* ---------- search ---------- */
+function rpcArgs(f, limit, offset) {
+  return { p_counties: f.counties.length ? f.counties : null, p_kinds: f.kinds.length ? f.kinds : null,
+    p_flags: f.flags.length ? f.flags : null, p_min_score: f.score, p_sale_days: f.sale ? +f.sale : null,
+    p_q: f.q || null, p_sort: f.sort, p_limit: limit, p_offset: offset };
+}
+async function search() {
+  const f = filters();
+  $("count").textContent = "Loading…";
+  const { data, error } = await sb.rpc("lead_search", rpcArgs(f, PAGE, state.page * PAGE));
+  if (error) { $("count").textContent = "Couldn't load leads"; $("rows").textContent = "";
+    $("empty").textContent = error.message; $("empty").classList.remove("hidden"); return; }
+  state.rows = data || []; state.total = state.rows.length ? Number(state.rows[0].total_count) : 0;
+  render();
+}
+function scoreBadge(s) {
+  const v = s ?? 0; return el("span", { class: "score" + (v >= 50 ? " hot" : v >= 30 ? " warm" : ""), text: String(v) });
+}
+function saleCell(d) {
+  const n = daysUntil(d); if (n == null) return el("span", { class: "sub", text: "None" });
+  const label = n === 0 ? "Sale today" : n === 1 ? "Sale tomorrow" : "Sale in " + n + " days";
+  return el("span", { class: "countdown" + (n > 30 ? " later" : ""), text: label });
+}
+function render() {
+  const tb = $("rows"); tb.textContent = "";
+  const from = state.total ? state.page * PAGE + 1 : 0, to = state.page * PAGE + state.rows.length;
+  $("count").textContent = state.total.toLocaleString("en-US") + (state.total === 1 ? " lead" : " leads");
+  $("empty").classList.toggle("hidden", state.rows.length > 0);
+  $("empty").textContent = "No leads match these filters. Clear a filter or lower the minimum score.";
+  $("pageInfo").textContent = state.total ? from.toLocaleString() + "–" + to.toLocaleString() + " of " + state.total.toLocaleString() : "";
+  $("prev").disabled = state.page === 0; $("next").disabled = to >= state.total;
+  for (const r of state.rows) {
+    const chips = el("div", { class: "chips" });
+    for (const k of r.kinds || []) chips.append(el("span", { class: "chip " + k, text: KINDS[k] || k }));
+    if (r.absentee) chips.append(el("span", { class: "chip", text: "Absentee" }));
+    if (r.senior_exempt) chips.append(el("span", { class: "chip", text: "Senior" }));
+    const tr = el("tr", { tabindex: "0" },
+      el("td", {}, scoreBadge(r.motivation_score)),
+      el("td", {}, el("div", { class: "addr", text: r.address_line || "Address unknown" }),
+        el("div", { class: "sub", text: [[r.city, r.zip].filter(Boolean).join(" "), r.county + " County"].filter(Boolean).join(", ") })),
+      el("td", {}, el("div", { text: title(r.owner_name) || "Not on file" }),
+        r.out_of_state ? el("div", { class: "sub", text: "Lives out of state" }) : null),
+      el("td", {}, chips),
+      el("td", {}, saleCell(r.next_sale)),
+      el("td", { class: "num", text: money(r.amount_owed) }),
+      el("td", { class: "num", text: money(r.assessed_value) }));
+    tr.onclick = () => openDetail(r.id);
+    tr.onkeydown = (e) => { if (e.key === "Enter") openDetail(r.id); };
+    tb.append(tr);
+  }
+}
+$("prev").onclick = () => { if (state.page > 0) { state.page--; search(); } };
+$("next").onclick = () => { state.page++; search(); };
+
+/* ---------- detail ---------- */
+async function openDetail(id) {
+  const box = $("detail"); box.textContent = "Loading…";
+  $("drawer").classList.add("open"); $("drawer").setAttribute("aria-hidden", "false"); $("scrim").classList.remove("hidden");
+  const { data, error } = await sb.rpc("lead_detail", { p_id: id });
+  box.textContent = "";
+  if (error || !data) { box.append(el("p", { class: "msg err", text: error ? error.message : "Lead not found." })); return; }
+  const p = data.property;
+  box.append(el("h2", { text: p.address_line || "Address unknown" }),
+    el("div", { class: "sub", text: [[p.city, "TX", p.zip].filter(Boolean).join(" "), p.county + " County"].join(", ") }));
+  const facts = el("div", { class: "facts" });
+  const fact = (k, v) => { if (v != null && v !== "") facts.append(el("div", {}, el("b", { text: k }), String(v))); };
+  fact("Owner", title(p.owner_name)); fact("Mailing address", title(p.owner_mail_addr));
+  fact("Score", p.motivation_score); fact("Assessed value", money(p.assessed_value));
+  fact("Land / building", p.land_value ? money(p.land_value) + " / " + money(p.impr_value) : null);
+  fact("Year built", p.year_built); fact("Size", p.sqft ? Number(p.sqft).toLocaleString() + " sq ft" : null);
+  fact("Beds / baths", p.beds ? p.beds + " / " + (p.baths ?? "?") : null);
+  fact("Owned since", p.deed_date || p.last_sale_date);
+  const tags = [p.absentee && "Absentee", p.out_of_state && "Out of state", p.corporate_owner && "Company-owned",
+    p.senior_exempt && "Senior (65+)", p.homestead && "Homestead"].filter(Boolean).join(", ");
+  fact("Owner signals", tags);
+  box.append(facts);
+  for (const e of data.events || []) {
+    const f = e.facts || {};
+    const dl = el("dl");
+    const row = (k, v) => { if (v != null && v !== "" && v !== false) dl.append(el("dt", { text: k }), el("dd", { text: String(v) })); };
+    row("Status", e.status === "active" ? "Active" : "Resolved");
+    row("Auction date", e.sale_date); row("Filed / last seen", e.event_date);
+    row(e.kind === "tax_delinquent" ? "Total owed" : "Original loan", e.amount != null ? money(e.amount) : null);
+    row("Owner on record", title(e.owner_name)); row("Case / document", e.case_number);
+    if (f.years) row("Tax years owed", f.years.join(", "));
+    if (f.suit) row("County lawsuit", f.cause_no || "Yes"); if (f.bankruptcy) row("Bankruptcy", "On file");
+    if (f.payment_agreement) row("Payment plan", "Yes");
+    if (f.complaints) row("Complaints (12 mo)", f.complaints + (f.confirmed_violation === false ? " (unconfirmed)" : ""));
+    if (f.lender) row("Lender", f.lender);
+    row("Source", e.source);
+    const ev = el("div", { class: "event" }, el("h3", { text: KINDS[e.kind] || e.kind }), dl);
+    if (e.doc_url) ev.append(el("p", { class: "note" }, el("a", { href: e.doc_url, target: "_blank", rel: "noopener", text: "Open the county notice" }),
+      " (links can expire; search the case number on the county site if it does)"));
+    box.append(ev);
+  }
+  $("closeDrawer").focus();
+}
+function closeDetail() { $("drawer").classList.remove("open"); $("drawer").setAttribute("aria-hidden", "true"); $("scrim").classList.add("hidden"); $("filters").classList.remove("open"); }
+$("closeDrawer").onclick = closeDetail; $("scrim").onclick = closeDetail;
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDetail(); });
+$("openFilters").onclick = () => { $("filters").classList.add("open"); $("scrim").classList.remove("hidden"); };
+
+/* ---------- saved lists ---------- */
+async function loadSaved(selectName) {
+  const { data } = await sb.from("saved_lists").select("id,name,filters").order("name");
+  const sel = $("savedSel"); sel.textContent = ""; sel.append(el("option", { value: "", text: "Choose a saved list" }));
+  for (const s of data || []) { const o = el("option", { value: s.id, text: s.name }); o.dataset.filters = JSON.stringify(s.filters); sel.append(o); }
+  if (selectName) [...sel.options].forEach((o) => { if (o.text === selectName) sel.value = o.value; });
+}
+$("savedSel").onchange = () => {
+  const o = $("savedSel").selectedOptions[0]; if (!o || !o.value) return;
+  applyFilters(JSON.parse(o.dataset.filters)); state.page = 0; search();
+};
+$("saveList").onclick = async () => {
+  const name = (prompt("Name this list", "") || "").trim(); if (!name) return;
+  const { error } = await sb.from("saved_lists").upsert({ name, filters: filters(), updated_at: new Date().toISOString() }, { onConflict: "user_id,name" });
+  if (error) { alert("Couldn't save the list: " + error.message); return; }
+  loadSaved(name);
+};
+$("delList").onclick = async () => {
+  const id = $("savedSel").value; if (!id) return;
+  if (!confirm("Delete this saved list? Your leads are not affected.")) return;
+  await sb.from("saved_lists").delete().eq("id", id); loadSaved();
+};
+
+/* ---------- CSV ---------- */
+$("csv").onclick = async () => {
+  const f = filters(), all = [];
+  $("csv").disabled = true; $("csv").textContent = "Preparing…";
+  for (let off = 0; off < 5000; off += 1000) {
+    const { data, error } = await sb.rpc("lead_search", rpcArgs(f, 1000, off));
+    if (error) { alert("Couldn't export: " + error.message); break; }
+    all.push(...data); if (data.length < 1000) break;
+  }
+  const cols = ["address_line", "city", "zip", "county", "owner_name", "owner_mail_addr", "motivation_score", "kinds",
+    "next_sale", "amount_owed", "assessed_value", "absentee", "out_of_state", "senior_exempt", "corporate_owner"];
+  const esc = (v) => { const s = Array.isArray(v) ? v.map((k) => KINDS[k] || k).join("; ") : v == null ? "" : String(v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const csv = [cols.join(","), ...all.map((r) => cols.map((c) => esc(r[c])).join(","))].join("\n");
+  const a = el("a", { href: URL.createObjectURL(new Blob([csv], { type: "text/csv" })), download: "bap-leads.csv" });
+  document.body.append(a); a.click(); a.remove();
+  $("csv").disabled = false; $("csv").textContent = "Download CSV";
+};
+</script>
+</body>
+</html>
