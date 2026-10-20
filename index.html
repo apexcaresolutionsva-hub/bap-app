@@ -151,6 +151,8 @@ tbody tr:last-child td { border-bottom: 0; }
 .event dt { color: var(--muted); }
 .event dd { margin: 0; }
 .note { font-size: 13px; color: var(--muted); }
+.links { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 14px; font-size: 14px; }
+.links a { color: var(--focus); }
 .scrim { position: fixed; inset: 0; background: rgba(10, 20, 35, .35); z-index: 15; }
 
 @media (max-width: 860px) {
@@ -464,6 +466,16 @@ async function openDetail(id) {
     p.senior_exempt && "Senior (65+)", p.homestead && "Homestead"].filter(Boolean).join(", ");
   fact("Owner signals", tags);
   box.append(facts);
+  // look the property up elsewhere in one click
+  const full = [p.address_line, p.city, "TX", p.zip].filter(Boolean).join(", ");
+  const enc = encodeURIComponent(full);
+  const links = el("p", { class: "links" },
+    el("a", { href: "https://www.google.com/maps/search/?api=1&query=" + enc, target: "_blank", rel: "noopener", text: "Google Maps" }),
+    el("a", { href: "https://www.zillow.com/homes/" + encodeURIComponent(full.replace(/,/g, "")) + "_rb/", target: "_blank", rel: "noopener", text: "Zillow" }),
+    el("a", { href: "https://www.google.com/search?q=" + encodeURIComponent('"' + (p.address_line || "") + '" ' + (p.zip || "")), target: "_blank", rel: "noopener", text: "Search the web" }));
+  if (p.county === "Dallas" && p.apn)
+    links.append(el("a", { href: "https://www.dallascad.org/AcctDetailRes.aspx?ID=" + encodeURIComponent(p.apn), target: "_blank", rel: "noopener", text: "Dallas appraisal record" }));
+  box.append(links);
   const pp = el("div", { class: "panel", id: "pipePanel" }); box.append(pp); renderPipePanel(id, pp);
   for (const e of data.events || []) {
     const f = e.facts || {};
