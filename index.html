@@ -1143,6 +1143,11 @@ function renderModelSection(leadId, dp, o) {
   let last = null;
   const show = () => {
     const i = read();
+    // financing must fit the strategy: a rental is held long-term (cash or DSCR), flips/BRRRR use short-term money
+    const fin = $("mFin");
+    for (const op of fin.options) op.disabled = (i.strategy === "rental" && op.value === "hard_money") || (i.strategy !== "rental" && op.value === "dscr");
+    if (fin.selectedOptions[0].disabled) { fin.value = i.strategy === "rental" ? "dscr" : "hard_money"; i.finance = fin.value;
+      if (i.strategy === "rental") { $("mLtv").value = 75; i.ltvPct = 75; } }
     // only show the inputs that matter for the chosen strategy and financing
     const vis = { mSell: i.strategy === "flip", mMonths: i.strategy !== "rental", mRent: i.strategy !== "flip", mOpex: i.strategy !== "flip",
       mTaxIns: i.strategy !== "flip", mLtRate: i.strategy !== "flip", mRefi: i.strategy === "brrrr", mRefiCost: i.strategy === "brrrr",
