@@ -108,7 +108,8 @@ tbody tr:last-child td { border-bottom: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .chip { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 10px; background: var(--code-bg); color: var(--code); white-space: nowrap; }
 .chip.pre_foreclosure, .chip.foreclosure_sale { background: var(--sale-bg); color: var(--sale); }
-.chip.tax_delinquent, .chip.tax_sale { background: var(--tax-bg); color: var(--tax); }
+.chip.tax_delinquent { background: var(--tax-bg); color: var(--tax); }
+.chip.tax_sale { background: var(--sale-bg); color: var(--sale); }
 .countdown { font-weight: 700; color: var(--sale); white-space: nowrap; }
 .countdown.later { color: var(--ink); font-weight: 600; }
 .pager { display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 12px; }
@@ -266,7 +267,7 @@ function showAuth() { $("auth").classList.remove("hidden"); $("app").classList.a
 async function showApp(user) {
   $("auth").classList.add("hidden"); $("app").classList.remove("hidden");
   $("signout").classList.remove("hidden"); $("who").textContent = user.email;
-  await loadCounties(); buildStaticFilters(); await loadSaved(); await search();
+  await loadCounties(); await buildStaticFilters(); await loadSaved(); await search();
 }
 $("authSwap").onclick = () => {
   signUp = !signUp;
@@ -298,9 +299,17 @@ async function loadCounties() {
   for (const c of names) box.append(el("label", {}, el("input", { type: "checkbox", value: c, "data-f": "county" }), c));
   if (!names.length && !error) box.append(el("span", { class: "sub", text: "No counties loaded yet" }));
 }
-function buildStaticFilters() {
-  const k = $("fKinds"); if (!k.childElementCount)
-    for (const [v, t] of Object.entries(KINDS)) k.append(el("label", {}, el("input", { type: "checkbox", value: v, "data-f": "kind" }), t));
+async function buildStaticFilters() {
+  const k = $("fKinds");
+  const was = checked("fKinds");
+  const { data: counts } = await sb.rpc("lead_kind_counts");
+  const n = Object.fromEntries((counts || []).map((c) => [c.kind, Number(c.leads)]));
+  k.textContent = "";
+  for (const [v, t] of Object.entries(KINDS)) {
+    if (!n[v] && !was.includes(v)) continue;             // hide types with no leads yet
+    const box = el("input", { type: "checkbox", value: v, "data-f": "kind" }); box.checked = was.includes(v);
+    k.append(el("label", {}, box, t, el("span", { class: "n", text: (n[v] || 0).toLocaleString("en-US") })));
+  }
   const f = $("fFlags"); if (!f.childElementCount)
     for (const [v, t] of Object.entries(FLAGS)) f.append(el("label", {}, el("input", { type: "checkbox", value: v, "data-f": "flag" }), t));
 }
@@ -403,13 +412,18 @@ async function openDetail(id) {
     const row = (k, v) => { if (v != null && v !== "" && v !== false) dl.append(el("dt", { text: k }), el("dd", { text: String(v) })); };
     row("Status", e.status === "active" ? "Active" : "Resolved");
     row("Auction date", e.sale_date); row("Filed / last seen", e.event_date);
-    row(e.kind === "tax_delinquent" ? "Total owed" : "Original loan", e.amount != null ? money(e.amount) : null);
+    const amountLabel = { tax_delinquent: "Total owed", tax_sale: "Minimum bid" }[e.kind] || "Original loan";
+    row(amountLabel, e.amount != null ? money(e.amount) : null);
+    if (f.stage) row("Stage", { scheduled: "On the next auction list", future: "Judgment entered, auction not scheduled yet",
+      struck_off: "Didn't sell at auction; county resale" }[f.stage] || f.stage);
+    if (f.market_value) row("Market value (tax firm)", money(f.market_value));
     row("Owner on record", title(e.owner_name)); row("Case / document", e.case_number);
     if (f.years) row("Tax years owed", f.years.join(", "));
     if (f.suit) row("County lawsuit", f.cause_no || "Yes"); if (f.bankruptcy) row("Bankruptcy", "On file");
     if (f.payment_agreement) row("Payment plan", "Yes");
     if (f.complaints) row("Complaints (12 mo)", f.complaints + (f.confirmed_violation === false ? " (unconfirmed)" : ""));
     if (f.lender) row("Lender", f.lender);
+    if (f.verify) row("Note", f.verify);
     row("Source", e.source);
     const ev = el("div", { class: "event" }, el("h3", { text: KINDS[e.kind] || e.kind }), dl);
     if (e.doc_url) ev.append(el("p", { class: "note" }, el("a", { href: e.doc_url, target: "_blank", rel: "noopener", text: "Open the county notice" }),
