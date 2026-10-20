@@ -337,7 +337,7 @@ const el = (tag, attrs = {}, ...kids) => {
   for (const k of kids) if (k != null) n.append(k.nodeType ? k : document.createTextNode(String(k)));
   return n;
 };
-const money = (v) => v == null ? "" : "$" + Math.round(Number(v)).toLocaleString("en-US");
+const money = (v) => v == null || v === "" || !isFinite(Number(v)) ? "" : (Number(v) < 0 ? "-$" : "$") + Math.abs(Math.round(Number(v))).toLocaleString("en-US");
 const title = (s) => (s || "").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 const daysUntil = (d) => d ? Math.round((new Date(d + "T00:00:00") - new Date(new Date().toDateString())) / 864e5) : null;
 
@@ -708,6 +708,11 @@ async function renderDealPanel(leadId, propertyId, dp, pp) {
   const vmsg = el("span", { class: "sub", role: "status" });
   const showVal = (v) => {
     window.__lastAvm = v;
+    // the deal calculator may already be on screen: fill rent (and ARV) it couldn't know yet
+    for (const [id, val] of [["mRent", v && v.rent], ["mArv", v && (v.high || v.value)]]) {
+      const x = document.getElementById(id);
+      if (x && !x.value && val) { x.value = Math.round(val); x.dispatchEvent(new Event("input", { bubbles: true })); }
+    }
     vbox.textContent = "";
     if (!v || v.value == null) return;
     vbox.append(el("div", { class: "mao", text: "As-is value " + money(v.value) }),
