@@ -71,6 +71,15 @@ header.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; d
 .hist { list-style: none; padding: 0; margin: 12px 0 0; font-size: 14px; }
 .hist li { padding: 6px 0; border-top: 1px solid var(--line); }
 .hist time { display: block; font-size: 12px; color: var(--muted); }
+.grid4 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; margin-bottom: 10px; }
+.grid4 input, .grid4 select { width: 100%; }
+.mao { font-size: 22px; font-weight: 700; margin: 4px 0 10px; }
+.ctr { border-top: 1px solid var(--line); padding: 10px 0; font-size: 14px; }
+.ctr .row2 { margin: 6px 0 0; }
+.badge { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 10px; background: var(--code-bg); color: var(--code); }
+.badge.signed { background: #e3f4ea; color: var(--ok); }
+.badge.warn { background: var(--sale-bg); color: var(--sale); }
+.small { padding: 4px 10px; font-size: 13px; }
 @media (max-width: 860px) { .pipe { padding: 14px; } .bar .who { display: none; } }
 
 /* sign in */
@@ -174,6 +183,7 @@ tbody tr:last-child td { border-bottom: 0; }
   <nav class="views hidden" id="views" aria-label="Views">
     <button type="button" id="vLeads" aria-pressed="true">Leads</button>
     <button type="button" id="vPipe" aria-pressed="false">Pipeline</button>
+    <button type="button" id="vDeals" aria-pressed="false">Contracts</button>
   </nav>
   <span class="spacer"></span>
   <span class="who" id="who"></span>
@@ -267,6 +277,24 @@ tbody tr:last-child td { border-bottom: 0; }
   </div>
 </section>
 
+<section class="pipe hidden" id="deals" aria-label="Contracts">
+  <div class="toolbar">
+    <span class="count" id="dCount">Contracts</span>
+    <span class="spacer"></span>
+    <label for="dStatus" class="sub">Status</label>
+    <select id="dStatus" class="ghost"><option value="">All</option><option value="drafted">Drafted</option>
+      <option value="sent">Sent</option><option value="viewed">Viewed</option><option value="signed">Signed</option>
+      <option value="voided">Voided</option></select>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Property</th><th>Type</th><th>Status</th><th>Other party</th><th class="num">Price</th><th class="num">Your fee</th><th>Closing</th><th>Texas disclosure</th></tr></thead>
+      <tbody id="dRows"></tbody>
+    </table>
+    <div class="empty hidden" id="dEmpty">No contracts yet. Open a lead in your pipeline and work an offer.</div>
+  </div>
+</section>
+
 <div class="scrim hidden" id="scrim"></div>
 <aside class="drawer" id="drawer" aria-label="Lead detail" aria-hidden="true">
   <button class="ghost close" id="closeDrawer" type="button">Close</button>
@@ -304,7 +332,7 @@ let state = { page: 0, total: 0, rows: [] };
 let signUp = false;
 
 /* ---------- auth ---------- */
-function showAuth() { $("auth").classList.remove("hidden"); $("app").classList.add("hidden"); $("pipe").classList.add("hidden"); $("views").classList.add("hidden"); $("signout").classList.add("hidden"); $("who").textContent = ""; }
+function showAuth() { $("auth").classList.remove("hidden"); $("app").classList.add("hidden"); $("pipe").classList.add("hidden"); $("deals").classList.add("hidden"); $("views").classList.add("hidden"); $("signout").classList.add("hidden"); $("who").textContent = ""; }
 let shownFor = null;
 async function showApp(user) {
   if (shownFor === user.id) return;          // sign-in fires more than one auth event; build the screen once
@@ -452,6 +480,7 @@ async function openDetail(id) {
   box.textContent = "";
   if (error || !data) { box.append(el("p", { class: "msg err", text: error ? error.message : "Lead not found." })); return; }
   const p = data.property;
+  window.__ownerName = title(p.owner_name);
   box.append(el("h2", { text: p.address_line || "Address unknown" }),
     el("div", { class: "sub", text: [[p.city, "TX", p.zip].filter(Boolean).join(" "), p.county + " County"].join(", ") }));
   const facts = el("div", { class: "facts" });
@@ -515,11 +544,15 @@ const STAGES = { new: "New", researching: "Researching", contacted: "Contacted",
 const ACTIVE = ["new", "researching", "contacted", "negotiating", "under_contract", "marketing", "assigned"];
 let pStage = "active";
 function setView(v) {
-  const pipe = v === "pipe";
-  $("app").classList.toggle("hidden", pipe); $("pipe").classList.toggle("hidden", !pipe);
-  $("vLeads").setAttribute("aria-pressed", String(!pipe)); $("vPipe").setAttribute("aria-pressed", String(pipe));
-  if (pipe) loadPipeline();
+  $("app").classList.toggle("hidden", v !== "leads"); $("pipe").classList.toggle("hidden", v !== "pipe");
+  $("deals").classList.toggle("hidden", v !== "deals");
+  $("vLeads").setAttribute("aria-pressed", String(v === "leads")); $("vPipe").setAttribute("aria-pressed", String(v === "pipe"));
+  $("vDeals").setAttribute("aria-pressed", String(v === "deals"));
+  if (v === "pipe") loadPipeline();
+  if (v === "deals") loadVault();
 }
+$("vDeals").onclick = () => setView("deals");
+$("dStatus").onchange = () => loadVault();
 $("vLeads").onclick = () => setView("leads");
 $("vPipe").onclick = () => setView("pipe");
 $("pDue").onchange = () => loadPipeline();
@@ -607,6 +640,123 @@ async function renderPipePanel(propertyId, pp) {
   const hist = el("ul", { class: "hist" });
   for (const h of data.history || []) hist.append(el("li", {}, el("time", { text: when(h.at) }), h.body || ""));
   pp.append(el("h3", { text: "History", style: "margin-top:14px" }), hist);
+  document.getElementById("dealPanel")?.remove();
+  const dp = el("div", { class: "panel", id: "dealPanel" }); pp.after(dp); renderDealPanel(L.id, propertyId, dp, pp);
+}
+
+
+/* ---------- offers & contracts (Tab 2) ---------- */
+const KIND = { purchase: "Purchase", assignment: "Assignment" };
+const STATUS = { drafted: "Drafted", sent: "Sent", viewed: "Viewed", signed: "Signed", voided: "Voided", expired: "Expired" };
+const num = (v) => { const n = Number(String(v || "").replace(/[$,\s]/g, "")); return isFinite(n) ? n : 0; };
+const otherParty = (c) => ((c.parties || []).find((x) => x.role !== "wholesaler") || {}).name || "";
+async function renderDealPanel(leadId, propertyId, dp, pp) {
+  dp.textContent = "";
+  const { data, error } = await sb.rpc("deal_for_lead", { p_lead: leadId });
+  if (error) { dp.append(el("p", { class: "msg err", text: error.message })); return; }
+  const o = data.offer || {};
+  // offer calculator
+  dp.append(el("h3", { text: "Offer" }));
+  const inp = (id, label, val) => el("label", {}, label, el("input", { id, inputmode: "decimal", value: val ?? "" }));
+  const grid = el("div", { class: "grid4" },
+    inp("oArv", "After-repair value (ARV)", o.arv ?? ""), inp("oRep", "Repairs", o.repairs ?? ""),
+    inp("oFee", "Your fee", o.fee ?? 10000), inp("oPct", "Rule (% of ARV)", o.pct ?? 70));
+  const mao = el("div", { class: "mao" });
+  const calc = () => { const m = Math.round(num($("oArv").value) * num($("oPct").value) / 100 - num($("oRep").value) - num($("oFee").value));
+    mao.textContent = num($("oArv").value) ? "Max offer " + money(Math.max(m, 0)) : "Enter the ARV to see your max offer"; return m; };
+  const save = el("button", { class: "ghost small", type: "button", text: "Save offer" });
+  const omsg = el("span", { class: "sub", role: "status" });
+  dp.append(grid, mao, el("div", { class: "row2" }, save, omsg));
+  grid.addEventListener("input", calc); calc();
+  save.onclick = async () => {
+    const r = await sb.rpc("save_offer", { p_lead: leadId, p_arv: num($("oArv").value), p_repairs: num($("oRep").value),
+      p_fee: num($("oFee").value), p_pct: num($("oPct").value) || 70 });
+    omsg.textContent = r.error ? "Couldn't save: " + r.error.message : "Saved to the lead's history.";
+    if (!r.error) renderPipePanel(propertyId, pp);
+  };
+  // contracts
+  dp.append(el("h3", { text: "Contracts", style: "margin-top:16px" }));
+  dp.append(el("p", { class: "note", text: "Texas law requires a written notice to the seller and to any end buyer that you are selling only " +
+    "your interest in the purchase contract and do not hold title. BAP won't let a Texas contract be marked sent or signed until that's recorded." }));
+  for (const c of data.contracts || []) dp.append(contractRow(c, leadId, propertyId, dp, pp));
+  // new contract form
+  const kind = el("select", { id: "cKind" }, el("option", { value: "purchase", text: "Purchase (you buy from the seller)" }),
+    el("option", { value: "assignment", text: "Assignment (you assign to an end buyer)" }));
+  const party = el("input", { id: "cParty", value: window.__ownerName || "" });
+  const price = el("input", { id: "cPrice", inputmode: "decimal", value: o.mao ? Math.round(o.mao) : "" });
+  const emd = el("input", { id: "cEmd", inputmode: "decimal", value: 500 });
+  const close = el("input", { id: "cClose", type: "date" });
+  const fee = el("input", { id: "cFee", inputmode: "decimal", value: o.fee ?? "" });
+  const feeLab = el("label", { class: "hidden" }, "Your assignment fee", fee);
+  const partyLab = el("label", {}, "Seller name", party);
+  kind.onchange = () => { const a = kind.value === "assignment"; feeLab.classList.toggle("hidden", !a);
+    partyLab.firstChild.textContent = a ? "End buyer name" : "Seller name"; if (a) party.value = ""; };
+  const make = el("button", { class: "primary small", type: "button", text: "Create contract record" });
+  const cmsg = el("span", { class: "sub", role: "status" });
+  dp.append(el("div", { class: "grid4", style: "margin-top:10px" }, el("label", {}, "Type", kind), partyLab,
+    el("label", {}, "Price", price), el("label", {}, "Earnest money", emd), el("label", {}, "Closing date", close), feeLab),
+    el("div", { class: "row2" }, make, cmsg));
+  make.onclick = async () => {
+    if (!num(price.value)) { cmsg.textContent = "Enter a price."; return; }
+    const role = kind.value === "purchase" ? "seller" : "end_buyer";
+    const r = await sb.rpc("create_contract", { p_lead: leadId, p_kind: kind.value, p_price: num(price.value),
+      p_earnest: num(emd.value) || null, p_closing: close.value || null, p_fee: kind.value === "assignment" ? num(fee.value) || null : null,
+      p_parties: party.value.trim() ? [{ role, name: party.value.trim() }] : [] });
+    if (r.error) { cmsg.textContent = "Couldn't create: " + r.error.message; return; }
+    renderPipePanel(propertyId, pp);
+  };
+}
+function contractRow(c, leadId, propertyId, dp, pp) {
+  const v = c.values || {};
+  const who = c.kind === "assignment" ? "buyer" : "seller";
+  const disclosed = v["disclosed_to_" + who + "_at"];
+  const row = el("div", { class: "ctr" },
+    el("div", {}, el("b", { text: (KIND[c.kind] || c.kind) + " at " + money(c.price) }), " ",
+      el("span", { class: "badge" + (c.status === "signed" ? " signed" : ""), text: STATUS[c.status] || c.status }), " ",
+      el("span", { class: "badge" + (disclosed ? "" : " warn"), text: disclosed ? "Disclosed to " + who : "Disclosure to " + who + " needed" })),
+    el("div", { class: "sub", text: [otherParty(c), c.earnest ? "Earnest " + money(c.earnest) : null, c.fee ? "Your fee " + money(c.fee) : null,
+      c.closing ? "Closing " + c.closing : null].filter(Boolean).join(", ") }));
+  const msg = el("span", { class: "sub", role: "status" });
+  const act = el("div", { class: "row2" });
+  const btn = (text, fn) => { const b = el("button", { class: "ghost small", type: "button", text }); b.onclick = fn; act.append(b); };
+  const refresh = () => renderPipePanel(propertyId, pp);
+  if (!disclosed && c.status !== "voided") btn("Record disclosure to " + who, async () => {
+    const how = prompt("How was the written notice given? e.g. Signed addendum, email with signed PDF", "Signed addendum");
+    if (!how) return;
+    const r = await sb.rpc("record_disclosure", { p_contract: c.id, p_to: who, p_method: how });
+    if (r.error) msg.textContent = r.error.message; else refresh();
+  });
+  const go = (st, label) => btn(label, async () => {
+    const r = await sb.rpc("set_contract_status", { p_contract: c.id, p_status: st });
+    if (r.error) msg.textContent = r.error.message; else refresh();
+  });
+  if (c.status === "drafted") go("sent", "Mark sent");
+  if (["drafted", "sent", "viewed"].includes(c.status)) go("signed", "Mark signed");
+  if (!["signed", "voided"].includes(c.status)) go("voided", "Void");
+  row.append(act, msg);
+  return row;
+}
+async function loadVault() {
+  $("dCount").textContent = "Loading…";
+  const { data, error } = await sb.rpc("contract_vault", { p_status: $("dStatus").value || null });
+  const tb = $("dRows"); tb.textContent = "";
+  if (error) { $("dCount").textContent = "Couldn't load contracts"; $("dEmpty").textContent = error.message; $("dEmpty").classList.remove("hidden"); return; }
+  $("dCount").textContent = data.length + (data.length === 1 ? " contract" : " contracts");
+  $("dEmpty").textContent = "No contracts yet. Open a lead in your pipeline and work an offer.";
+  $("dEmpty").classList.toggle("hidden", data.length > 0);
+  for (const c of data) {
+    const tr = el("tr", { tabindex: "0" },
+      el("td", {}, el("div", { class: "addr", text: c.address_line || "Address unknown" }), el("div", { class: "sub", text: [c.city, c.county + " County"].filter(Boolean).join(", ") })),
+      el("td", { text: KIND[c.kind] || c.kind }),
+      el("td", {}, el("span", { class: "badge" + (c.status === "signed" ? " signed" : ""), text: STATUS[c.status] || c.status })),
+      el("td", { text: otherParty(c) }),
+      el("td", { class: "num", text: money(c.price) }), el("td", { class: "num", text: money(c.fee) }),
+      el("td", { text: c.closing || "" }),
+      el("td", {}, el("span", { class: "badge" + (c.disclosed ? "" : " warn"), text: c.disclosed ? "Recorded" : "Needed" })));
+    tr.onclick = () => openDetail(c.property_id);
+    tr.onkeydown = (e) => { if (e.key === "Enter") openDetail(c.property_id); };
+    tb.append(tr);
+  }
 }
 
 /* ---------- saved lists ---------- */
