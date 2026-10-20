@@ -94,6 +94,7 @@ aside.filters h2:first-child { margin-top: 0; }
 .checks { display: grid; gap: 6px; }
 .checks label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .checks .n { margin-left: auto; color: var(--muted); font-size: 13px; }
+.checks label.zero { opacity: .45; cursor: default; }
 .row2 { display: flex; gap: 8px; align-items: center; }
 input[type=range] { width: 100%; accent-color: var(--brand); }
 .filters select, .filters input[type=search] { width: 100%; padding: 8px 10px; border: 1px solid var(--line);
@@ -197,7 +198,7 @@ tbody tr:last-child td { border-bottom: 0; }
     <p class="hint">Shows leads with any checked type.</p>
     <div class="checks" id="fKinds"></div>
     <h2>Owner</h2>
-    <p class="hint">Shows owners matching any checked box.</p>
+    <p class="hint">Shows owners matching any checked box. Owner details cover Dallas County so far; Harris is coming.</p>
     <div class="checks" id="fFlags"></div>
     <h2>Auction date</h2>
     <select id="fSale">
@@ -352,7 +353,22 @@ async function buildStaticFilters() {
     k.append(el("label", {}, box, t, el("span", { class: "n", text: (n[v] || 0).toLocaleString("en-US") })));
   }
   const f = $("fFlags"); if (!f.childElementCount)
-    for (const [v, t] of Object.entries(FLAGS)) f.append(el("label", {}, el("input", { type: "checkbox", value: v, "data-f": "flag" }), t));
+    for (const [v, t] of Object.entries(FLAGS)) f.append(el("label", {}, el("input", { type: "checkbox", value: v, "data-f": "flag" }), t,
+      el("span", { class: "n" })));
+}
+// live counts: what each unchecked box would give with the other choices; zero options are dimmed
+async function updateFacets(f) {
+  const { data } = await sb.rpc("lead_facets", { p_counties: f.counties.length ? f.counties : null,
+    p_kinds: f.kinds.length ? f.kinds : null, p_flags: f.flags.length ? f.flags : null });
+  if (!data) return;
+  for (const [box, counts] of [["fKinds", data.kinds || {}], ["fFlags", data.flags || {}]]) {
+    $(box).querySelectorAll("label").forEach((lab) => {
+      const i = lab.querySelector("input"), n = Number(counts[i.value] || 0), span = lab.querySelector(".n");
+      if (span) span.textContent = n.toLocaleString("en-US");
+      const dead = n === 0 && !i.checked;
+      lab.classList.toggle("zero", dead); i.disabled = dead;
+    });
+  }
 }
 const checked = (box) => [...$(box).querySelectorAll("input:checked")].map((i) => i.value);
 function filters() {
@@ -379,6 +395,7 @@ function rpcArgs(f, limit, offset) {
 }
 async function search() {
   const f = filters();
+  updateFacets(f);
   $("count").textContent = "Loading…";
   const { data, error } = await sb.rpc("lead_search", rpcArgs(f, PAGE, state.page * PAGE));
   if (error) { $("count").textContent = "Couldn't load leads"; $("rows").textContent = "";
