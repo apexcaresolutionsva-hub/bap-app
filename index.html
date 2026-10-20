@@ -3,8 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>BAP Leads</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏚️</text></svg>">
+<title>BAP</title>
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#1d3557">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="BAP">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -319,6 +326,8 @@ const SUPABASE_URL = "https://rpcdrgzcaarggupctede.supabase.co";
 const SUPABASE_KEY = "sb_publishable_qyI3EzhYghqCmRnhu41ucg_lhzhufqt";   // publishable: safe in a browser, data protected by row-level security
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const PAGE = 100;
+// installable app: register the offline helper (ignored by browsers that don't support it)
+if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 
 const KINDS = {
   pre_foreclosure: "Pre-foreclosure", foreclosure_sale: "Foreclosure sale", tax_delinquent: "Tax delinquent",
