@@ -115,10 +115,10 @@ tbody tr:last-child td { border-bottom: 0; }
 
 /* detail drawer */
 .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(520px, 100%); background: var(--bg);
-  border-left: 1px solid var(--line); box-shadow: -12px 0 32px rgba(10, 20, 35, .18); z-index: 20;
-  transform: translateX(100%); transition: transform .22s ease; overflow: auto;
+  border-left: 1px solid var(--line); z-index: 20; visibility: hidden;
+  transform: translateX(100%); transition: transform .22s ease, visibility 0s .22s; overflow: auto;
   padding: calc(env(safe-area-inset-top, 0px) + 18px) 22px calc(env(safe-area-inset-bottom, 0px) + 24px); }
-.drawer.open { transform: none; }
+.drawer.open { transform: none; visibility: visible; transition: transform .22s ease; box-shadow: -12px 0 32px rgba(10, 20, 35, .18); }
 .drawer h2 { font-size: 22px; line-height: 1.25; margin: 0 0 2px; }
 .drawer .close { float: right; }
 .facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; margin: 18px 0; }
@@ -135,8 +135,9 @@ tbody tr:last-child td { border-bottom: 0; }
 @media (max-width: 860px) {
   .app { grid-template-columns: 1fr; }
   aside.filters { position: fixed; inset: 0 0 0 auto; width: min(320px, 90%); z-index: 18; transform: translateX(-100%);
-    left: 0; right: auto; transition: transform .22s ease; padding-top: calc(env(safe-area-inset-top, 0px) + 18px); }
-  aside.filters.open { transform: none; }
+    left: 0; right: auto; visibility: hidden; transition: transform .22s ease, visibility 0s .22s;
+    padding-top: calc(env(safe-area-inset-top, 0px) + 18px); }
+  aside.filters.open { transform: none; visibility: visible; transition: transform .22s ease; }
   .filters-toggle { display: inline-block; }
   main.results { padding: 14px; }
   header.bar { padding: 10px 14px; }
