@@ -707,6 +707,7 @@ async function renderDealPanel(leadId, propertyId, dp, pp) {
   const vbox = el("div");
   const vmsg = el("span", { class: "sub", role: "status" });
   const showVal = (v) => {
+    window.__lastAvm = v;
     vbox.textContent = "";
     if (!v || v.value == null) return;
     vbox.append(el("div", { class: "mao", text: "As-is value " + money(v.value) }),
@@ -755,6 +756,7 @@ async function renderDealPanel(leadId, propertyId, dp, pp) {
     omsg.textContent = r.error ? "Couldn't save: " + r.error.message : "Saved to the lead's history.";
     if (!r.error) renderPipePanel(propertyId, pp);
   };
+  renderModelSection(leadId, dp, o);
   // contracts
   dp.append(el("h3", { text: "Contracts", style: "margin-top:16px" }));
   dp.append(el("p", { class: "note", text: "Texas law requires a written notice to the seller and to any end buyer that you are selling only " +
@@ -1039,6 +1041,188 @@ async function renderAiSection(leadId, dp) {
     msg.textContent = r.data.price != null ? "Charged $" + Number(r.data.price).toFixed(2) + "." : "";
     renderAnalysis(box, r.data.result, r.data.at);
   };
+}
+
+// BAP deal calculator: flip, rental (buy & hold) and BRRRR, with sources & uses. All inputs are plain numbers.
+function pmt(rate, years, principal) {           // monthly payment, fixed-rate amortizing
+  const r = rate / 100 / 12, n = years * 12;
+  if (!principal) return 0;
+  return r === 0 ? principal / n : principal * r / (1 - Math.pow(1 + r, -n));
+}
+function dealCalc(i) {
+  const s = i.strategy, hm = i.finance === "hard_money", cash = i.finance === "cash";
+  const months = s === "rental" ? (i.rehabMonths || 1) : i.months;
+  const buyClose = i.purchase * i.buyClosePct / 100;
+  const loanPurchase = hm ? i.purchase * i.ltvPct / 100 : 0;
+  const loanRehab = hm ? i.rehab * i.rehabFinPct / 100 : 0;
+  // a long-term (DSCR) loan for a straight rental replaces the hard-money loan
+  const dscrLoan = (s === "rental" && i.finance === "dscr") ? i.purchase * i.ltvPct / 100 : 0;
+  const loan = loanPurchase + loanRehab;
+  const points = loan * i.pointsPct / 100 + dscrLoan * i.pointsPct / 100;
+  const interest = loan * i.ratePct / 100 / 12 * months;    // interest-only during the project
+  const holding = i.holdMonthly * months;
+  const uses = [["Purchase price", i.purchase], ["Rehab", i.rehab], ["Buying closing costs", buyClose],
+    ["Loan points & fees", points], ["Loan interest (" + months + " mo)", interest], ["Holding costs (taxes, insurance, utilities)", holding]];
+  const totalUses = uses.reduce((a, [, v]) => a + v, 0);
+  const sources = [];
+  if (loan) sources.push([hm ? "Hard money loan" : "Loan", loan]);
+  if (dscrLoan) sources.push(["Long-term rental (DSCR) loan", dscrLoan]);
+  const cashNeeded = totalUses - loan - dscrLoan;
+  sources.push(["Your cash", cashNeeded]);
+  const out = { uses, sources, totalUses, cashNeeded, loan: loan + dscrLoan, months };
+  if (s === "flip") {
+    const sellCosts = i.arv * i.sellPct / 100;
+    out.sellCosts = sellCosts;
+    out.profit = i.arv - sellCosts - totalUses;
+    out.roi = cashNeeded > 0 ? out.profit / cashNeeded * 100 : null;
+    out.annualRoi = out.roi != null && months > 0 ? out.roi * 12 / months : null;
+    out.margin = i.arv ? out.profit / i.arv * 100 : null;
+    return out;
+  }
+  // rentals: income side
+  const grossYear = i.rent * 12;
+  const opex = grossYear * i.opexPct / 100 + i.taxInsMonthly * 12;   // vacancy+mgmt+repairs %, plus taxes & insurance
+  const noi = grossYear - opex;
+  out.noi = noi;
+  out.capRate = (i.purchase + i.rehab) ? noi / (i.purchase + i.rehab) * 100 : null;
+  if (s === "rental") {
+    const debt = pmt(i.ltRatePct, 30, dscrLoan) * 12;
+    out.debtService = debt;
+    out.cashFlow = noi - debt;
+    out.dscr = debt ? noi / debt : null;
+    out.coc = cashNeeded > 0 ? out.cashFlow / cashNeeded * 100 : null;
+    out.roi = out.coc;
+    out.profit = out.cashFlow;
+    return out;
+  }
+  // BRRRR: refinance at a % of ARV, pay off the short-term loan, keep the rest
+  const refi = i.arv * i.refiLtvPct / 100;
+  const refiCosts = refi * i.refiCostPct / 100;
+  const cashOut = refi - refiCosts - loan;               // after paying off the hard-money loan
+  const cashLeftIn = cashNeeded - cashOut;               // negative = you pulled out more than you put in
+  const debt = pmt(i.ltRatePct, 30, refi) * 12;
+  out.refi = refi; out.refiCosts = refiCosts; out.cashOut = cashOut; out.cashLeftIn = cashLeftIn;
+  out.debtService = debt; out.cashFlow = noi - debt; out.dscr = debt ? noi / debt : null;
+  out.equity = i.arv - refi;
+  out.coc = cashLeftIn > 0 ? out.cashFlow / cashLeftIn * 100 : null;   // null = infinite (no cash left in)
+  out.roi = out.coc; out.profit = out.cashFlow;
+  return out;
+}
+
+/* ---------- Tab 3: deal numbers (flip / rental / BRRRR) + lender packet ---------- */
+const STRATS = { flip: "Fix & flip", rental: "Buy & hold rental", brrrr: "BRRRR (rehab, rent, refinance)" };
+const FIN = { hard_money: "Hard money loan", cash: "All cash", dscr: "Long-term rental (DSCR) loan" };
+function renderModelSection(leadId, dp, o) {
+  dp.append(el("h3", { text: "Deal numbers", style: "margin-top:16px" }));
+  const avm = window.__lastAvm || {};
+  const box = el("div"); const res = el("div"); const msg = el("span", { class: "sub", role: "status" });
+  const field = (id, label, val, step) => el("label", {}, label, el("input", { id, inputmode: "decimal", value: val ?? "", "data-m": "1" }));
+  const sel = (id, label, opts, val) => { const x = el("select", { id, "data-m": "1" }); for (const [k, t] of Object.entries(opts)) { const op = el("option", { value: k, text: t }); if (k === val) op.selected = true; x.append(op); } return el("label", {}, label, x); };
+  const arv0 = o.arv || avm.high || avm.value || "";
+  box.append(el("div", { class: "grid4" },
+    sel("mStrat", "Strategy", STRATS, "flip"), sel("mFin", "Financing", FIN, "hard_money"),
+    field("mPurch", "Purchase price", o.mao ? Math.round(o.mao) : ""), field("mRehab", "Rehab budget", o.repairs ?? ""),
+    field("mArv", "ARV (after repairs)", arv0), field("mMonths", "Project length (months)", 6),
+    field("mBuyCc", "Buying closing costs (%)", 2), field("mHold", "Holding costs per month", 300),
+    field("mSell", "Selling costs (% of ARV)", 8), field("mLtv", "Loan: % of purchase", 90),
+    field("mRehabFin", "Loan: % of rehab", 100), field("mRate", "Loan rate (%)", 12), field("mPts", "Points / fees (%)", 2),
+    field("mRent", "Monthly rent", avm.rent ? Math.round(avm.rent) : ""), field("mOpex", "Vacancy, management, repairs (% of rent)", 25),
+    field("mTaxIns", "Taxes + insurance per month", 300), field("mLtRate", "Long-term / refinance rate (%)", 7.5),
+    field("mRefi", "Refinance at % of ARV", 75), field("mRefiCost", "Refinance costs (%)", 3), field("mRehabMo", "Rehab months before renting", 4)));
+  const N = (id) => num($(id).value);
+  const read = () => ({ strategy: $("mStrat").value, finance: $("mFin").value, purchase: N("mPurch"), rehab: N("mRehab"), arv: N("mArv"),
+    months: N("mMonths") || 6, buyClosePct: N("mBuyCc"), holdMonthly: N("mHold"), sellPct: N("mSell"), ltvPct: N("mLtv"),
+    rehabFinPct: N("mRehabFin"), ratePct: N("mRate"), pointsPct: N("mPts"), rent: N("mRent"), opexPct: N("mOpex"),
+    taxInsMonthly: N("mTaxIns"), ltRatePct: N("mLtRate"), refiLtvPct: N("mRefi"), refiCostPct: N("mRefiCost"), rehabMonths: N("mRehabMo") || 1 });
+  const pct = (v) => v == null || !isFinite(v) ? "n/a" : v.toFixed(1) + "%";
+  let last = null;
+  const show = () => {
+    const i = read();
+    // only show the inputs that matter for the chosen strategy and financing
+    const vis = { mSell: i.strategy === "flip", mMonths: i.strategy !== "rental", mRent: i.strategy !== "flip", mOpex: i.strategy !== "flip",
+      mTaxIns: i.strategy !== "flip", mLtRate: i.strategy !== "flip", mRefi: i.strategy === "brrrr", mRefiCost: i.strategy === "brrrr",
+      mRehabMo: i.strategy !== "flip", mLtv: i.finance !== "cash", mRehabFin: i.finance === "hard_money", mRate: i.finance === "hard_money",
+      mPts: i.finance !== "cash", mArv: true };
+    for (const [id, on] of Object.entries(vis)) $(id).parentElement.classList.toggle("hidden", !on);
+    res.textContent = "";
+    if (!i.purchase) { res.append(el("p", { class: "sub", text: "Enter a purchase price to see the numbers." })); return; }
+    const r = dealCalc(i); last = { i, r };
+    const kv = [];
+    if (i.strategy === "flip") kv.push(["Profit", money(r.profit)], ["Cash needed", money(r.cashNeeded)], ["Return on cash", pct(r.roi)],
+      ["Annualized", pct(r.annualRoi)], ["Profit margin (of ARV)", pct(r.margin)]);
+    else kv.push(["Cash flow per year", money(r.cashFlow)], ["Per month", money(r.cashFlow / 12)], ["Cash needed", money(r.cashNeeded)],
+      ["Cap rate", pct(r.capRate)], ["Debt coverage (DSCR)", r.dscr ? r.dscr.toFixed(2) + "x" : "n/a"]);
+    if (i.strategy === "brrrr") kv.push(["Refinance loan", money(r.refi)], ["Cash back at refinance", money(r.cashOut)],
+      ["Cash left in the deal", r.cashLeftIn <= 0 ? "None (you get it all back)" : money(r.cashLeftIn)],
+      ["Cash-on-cash", r.coc == null ? "Infinite (no cash left in)" : pct(r.coc)], ["Equity after refinance", money(r.equity)]);
+    else if (i.strategy === "rental") kv.push(["Cash-on-cash", pct(r.coc)]);
+    const good = i.strategy === "flip" ? r.profit > 0 : r.cashFlow > 0;
+    res.append(el("div", { class: "mao", style: "color:" + (good ? "var(--ok)" : "var(--sale)"),
+      text: i.strategy === "flip" ? "Profit " + money(r.profit) : "Cash flow " + money(r.cashFlow / 12) + "/mo" }));
+    const t = el("table", { style: "min-width:0;font-size:14px" }); const tb = el("tbody");
+    for (const [k, v] of kv) tb.append(el("tr", { style: "cursor:default" }, el("td", { class: "sub", text: k }), el("td", { class: "num", text: v })));
+    t.append(tb); res.append(t);
+    const su = el("table", { style: "min-width:0;font-size:13px;margin-top:8px" }); const sb2 = el("tbody");
+    sb2.append(el("tr", {}, el("th", { text: "Uses of money" }), el("th", { class: "num", text: money(r.totalUses) })));
+    for (const [k, v] of r.uses) if (v) sb2.append(el("tr", { style: "cursor:default" }, el("td", { text: k }), el("td", { class: "num", text: money(v) })));
+    sb2.append(el("tr", {}, el("th", { text: "Sources of money" }), el("th", { class: "num", text: money(r.totalUses) })));
+    for (const [k, v] of r.sources) sb2.append(el("tr", { style: "cursor:default" }, el("td", { text: k }), el("td", { class: "num", text: money(v) })));
+    su.append(sb2); res.append(su);
+  };
+  box.addEventListener("input", show); box.addEventListener("change", show);
+  const save = el("button", { class: "ghost small", type: "button", text: "Save these numbers" });
+  const packet = el("button", { class: "primary small", type: "button", text: "Lender packet (PDF)" });
+  save.onclick = async () => {
+    if (!last) return;
+    const { i, r } = last;
+    const lines = [...r.uses.filter(([, v]) => v).map(([label, amount]) => ({ section: "use", label, amount: Math.round(amount) })),
+      ...r.sources.map(([label, amount]) => ({ section: "source", label, amount: Math.round(amount) }))];
+    const res2 = await sb.rpc("save_financial_model", { p_lead: leadId, p_model: { strategy: i.strategy, purchase: i.purchase, rehab: i.rehab,
+      arv: i.arv, months: r.months, rent: i.rent || null, closing_costs: Math.round(r.uses[2][1]), holding_costs: Math.round(r.uses[5][1]),
+      selling_costs: r.sellCosts ? Math.round(r.sellCosts) : null, total_sources: Math.round(r.totalUses), total_uses: Math.round(r.totalUses),
+      profit: Math.round(r.profit), roi: r.roi != null ? Math.round(r.roi * 10) / 10 : null, cash_needed: Math.round(r.cashNeeded), lines } });
+    msg.textContent = res2.error ? "Couldn't save: " + res2.error.message : "Saved to the lead's history.";
+  };
+  packet.onclick = () => lenderPacket(leadId, last, msg);
+  dp.append(box, res, el("div", { class: "row2", style: "margin-top:8px" }, save, packet, msg));
+  show();
+}
+async function lenderPacket(leadId, last, msg) {
+  if (!last) { msg.textContent = "Enter the numbers first."; return; }
+  const { i, r } = last, p = window.__prop || {}, avm = window.__lastAvm || {};
+  const { data: ai } = await sb.from("ai_analyses").select("result").eq("lead_id", leadId).order("created_at", { ascending: false }).limit(1);
+  const a = ai && ai[0] ? ai[0].result : null;
+  const who = localStorage.getItem("bapBuyerName") || "";
+  const esc = (x) => String(x ?? "").replace(/[&<>]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[ch]);
+  const row = (k, v) => v == null || v === "" ? "" : "<tr><td>" + esc(k) + "</td><td class=n>" + esc(v) + "</td></tr>";
+  const pct = (v) => v == null || !isFinite(v) ? "" : v.toFixed(1) + "%";
+  const addr = [p.address_line, p.city, p.state || "TX", p.zip].filter(Boolean).join(", ");
+  const comps = (avm.comps || []).map((c) => "<tr><td>" + esc(c.address) + "</td><td class=n>" + esc(money(c.price)) + "</td><td class=n>" +
+    esc(c.sqft ? Number(c.sqft).toLocaleString("en-US") : "") + "</td><td class=n>" + esc(c.miles ?? "") + "</td></tr>").join("");
+  const html = "<!doctype html><html><head><meta charset='utf-8'><title>Loan request: " + esc(addr) + "</title><style>" +
+    "body{font:11pt/1.45 system-ui,Segoe UI,Arial;max-width:7.5in;margin:.5in auto;color:#111}h1{font-size:18pt;margin:0}h2{font-size:12pt;margin:18px 0 6px;border-bottom:1px solid #ccc}" +
+    "table{border-collapse:collapse;width:100%}td,th{padding:3px 6px;border-bottom:1px solid #eee;text-align:left}.n{text-align:right}" +
+    ".bar{background:#fff4dd;padding:8px 12px;margin-bottom:14px}@media print{.bar{display:none}}</style></head><body>" +
+    "<div class=bar>Lender packet from BAP. <button onclick='print()'>Print or save as PDF</button></div>" +
+    "<h1>Loan request: " + esc(STRATS[i.strategy]) + "</h1><div>" + esc(addr) + (p.county ? " (" + esc(p.county) + " County)" : "") + "</div>" +
+    "<h2>The deal</h2><table>" + row("Purchase price", money(i.purchase)) + row("Rehab budget", money(i.rehab)) + row("After-repair value (ARV)", money(i.arv)) +
+    row("Loan requested", money(r.loan)) + row("Loan to purchase", i.finance !== "cash" ? i.ltvPct + "%" : "") +
+    row("Loan to ARV", i.arv && r.loan ? pct(r.loan / i.arv * 100) : "") + row("Borrower cash in the deal", money(r.cashNeeded)) +
+    row("Project length", r.months + " months") + row("Exit", i.strategy === "flip" ? "Sale at ARV" : i.strategy === "brrrr" ? "Refinance at " + i.refiLtvPct + "% of ARV" : "Long-term rental") + "</table>" +
+    "<h2>Sources & uses</h2><table>" + r.uses.filter(([, v]) => v).map(([k, v]) => row(k, money(v))).join("") +
+    "<tr><th>Total uses</th><th class=n>" + esc(money(r.totalUses)) + "</th></tr>" + r.sources.map(([k, v]) => row(k, money(v))).join("") + "</table>" +
+    "<h2>Returns</h2><table>" + (i.strategy === "flip" ? row("Projected profit", money(r.profit)) + row("Return on cash", pct(r.roi)) + row("Profit margin", pct(r.margin))
+      : row("Net operating income (yearly)", money(r.noi)) + row("Cash flow (yearly)", money(r.cashFlow)) + row("DSCR", r.dscr ? r.dscr.toFixed(2) + "x" : "") + row("Cap rate", pct(r.capRate))) + "</table>" +
+    "<h2>Property</h2><table>" + row("Year built", p.year_built) + row("Size", p.sqft ? Number(p.sqft).toLocaleString("en-US") + " sq ft" : "") +
+    row("Beds / baths", p.beds ? p.beds + " / " + (p.baths ?? "") : "") + row("County assessed value", money(p.assessed_value)) +
+    row("Market estimate (as-is)", avm.value ? money(avm.value) + " (" + money(avm.low) + " to " + money(avm.high) + ")" : "") + row("Market rent estimate", avm.rent ? money(avm.rent) + "/mo" : "") + "</table>" +
+    (comps ? "<h2>Comparable sales</h2><table><tr><th>Address</th><th class=n>Price</th><th class=n>Sq ft</th><th class=n>Miles</th></tr>" + comps + "</table>" : "") +
+    (a && a.headline ? "<h2>Deal summary</h2><p>" + esc(a.headline) + "</p>" + (a.arv && a.arv.basis ? "<p><b>ARV basis:</b> " + esc(a.arv.basis) + "</p>" : "") : "") +
+    "<h2>Borrower</h2><p>" + esc(who || "____________________") + "</p><p style='color:#666;font-size:9pt'>Figures are estimates prepared by the borrower with BAP; lenders should verify value, title and condition.</p></body></html>";
+  const w = window.open("", "_blank");
+  if (!w) { msg.textContent = "Your browser blocked the new window. Allow pop-ups for this site and try again."; return; }
+  w.document.write(html); w.document.close();
+  msg.textContent = "Lender packet opened. Print or save as PDF to send.";
 }
 
 /* ---------- saved lists ---------- */
