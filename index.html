@@ -686,8 +686,42 @@ async function renderDealPanel(leadId, propertyId, dp, pp) {
   const { data, error } = await sb.rpc("deal_for_lead", { p_lead: leadId });
   if (error) { dp.append(el("p", { class: "msg err", text: error.message })); return; }
   const o = data.offer || {};
+  // value & rent (RentCast) — as-is value with comps; you judge the ARV
+  dp.append(el("h3", { text: "Value & rent" }));
+  const vbox = el("div");
+  const vmsg = el("span", { class: "sub", role: "status" });
+  const showVal = (v) => {
+    vbox.textContent = "";
+    if (!v || v.value == null) return;
+    vbox.append(el("div", { class: "mao", text: "As-is value " + money(v.value) }),
+      el("div", { class: "sub", text: "Likely range " + money(v.low) + " to " + money(v.high) + (v.rent ? ". Rent about " + money(v.rent) + "/mo (" + money(v.rent_low) + " to " + money(v.rent_high) + ")" : "") +
+        ". Estimated " + when(v.at) + " by RentCast." }));
+    const comps = v.comps || [];
+    if (comps.length) {
+      const t = el("table", { style: "min-width:0;margin-top:8px;font-size:13px" },
+        el("thead", {}, el("tr", {}, el("th", { text: "Comparable sale" }), el("th", { class: "num", text: "Price" }),
+          el("th", { class: "num", text: "Sq ft" }), el("th", { class: "num", text: "Miles" }), el("th", { class: "num", text: "Match" }))));
+      const tb = el("tbody");
+      for (const c of comps) tb.append(el("tr", { style: "cursor:default" }, el("td", { text: c.address || "" }), el("td", { class: "num", text: money(c.price) }),
+        el("td", { class: "num", text: c.sqft ? Number(c.sqft).toLocaleString("en-US") : "" }), el("td", { class: "num", text: c.miles ?? "" }),
+        el("td", { class: "num", text: c.match != null ? c.match + "%" : "" })));
+      t.append(tb); vbox.append(el("div", { class: "table-wrap", style: "margin-top:6px" }, t));
+    }
+    vbox.append(el("p", { class: "note", text: "This is today's as-is value. Your ARV (after repairs) is usually higher: judge it from the best renovated comps above." }));
+  };
+  const vbtn = el("button", { class: "ghost small", type: "button", text: "Get value & rent" });
+  vbtn.onclick = async () => {
+    vbtn.disabled = true; vmsg.textContent = "Asking RentCast…";
+    const r = await sb.functions.invoke("valuation", { body: { property_id: propertyId } });
+    vbtn.disabled = false;
+    if (r.error) { let m = r.error.message; try { m = (await r.error.context.json()).error || m; } catch (e) { /* generic */ } vmsg.textContent = m; return; }
+    vmsg.textContent = r.data.cached ? "Showing the estimate from " + when(r.data.at) + " (free; refreshes after 30 days)." : "";
+    showVal(r.data);
+  };
+  dp.append(el("div", { class: "row2" }, vbtn, vmsg), vbox);
+  sb.rpc("property_valuation", { p_property: propertyId }).then(({ data: v }) => { if (v) { showVal(v); vbtn.textContent = "Show saved estimate"; } });
   // offer calculator
-  dp.append(el("h3", { text: "Offer" }));
+  dp.append(el("h3", { text: "Offer", style: "margin-top:16px" }));
   const inp = (id, label, val) => el("label", {}, label, el("input", { id, inputmode: "decimal", value: val ?? "" }));
   const grid = el("div", { class: "grid4" },
     inp("oArv", "After-repair value (ARV)", o.arv ?? ""), inp("oRep", "Repairs", o.repairs ?? ""),
