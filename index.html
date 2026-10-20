@@ -302,7 +302,10 @@ let signUp = false;
 
 /* ---------- auth ---------- */
 function showAuth() { $("auth").classList.remove("hidden"); $("app").classList.add("hidden"); $("pipe").classList.add("hidden"); $("views").classList.add("hidden"); $("signout").classList.add("hidden"); $("who").textContent = ""; }
+let shownFor = null;
 async function showApp(user) {
+  if (shownFor === user.id) return;          // sign-in fires more than one auth event; build the screen once
+  shownFor = user.id;
   $("auth").classList.add("hidden"); $("app").classList.remove("hidden");
   $("signout").classList.remove("hidden"); $("who").textContent = user.email; $("views").classList.remove("hidden");
   await loadCounties(); await buildStaticFilters(); await loadSaved(); await search();
@@ -326,15 +329,15 @@ $("authForm").onsubmit = async (e) => {
   if (signUp && !res.data.session) { $("authMsg").textContent = "Check your email for a confirmation link, then sign in here."; return; }
   $("authMsg").textContent = "";
 };
-$("signout").onclick = () => sb.auth.signOut();
+$("signout").onclick = () => { shownFor = null; sb.auth.signOut(); };
 sb.auth.onAuthStateChange((_evt, session) => { session ? showApp(session.user) : showAuth(); });
 
 /* ---------- filters ---------- */
 async function loadCounties() {
   const box = $("fCounties"); box.textContent = "";
-  const { data: src, error } = await sb.from("data_sources").select("county").eq("active", true);
-  const names = [...new Set((src || []).map((r) => r.county))].sort();
-  for (const c of names) box.append(el("label", {}, el("input", { type: "checkbox", value: c, "data-f": "county" }), c));
+  const { data: src, error } = await sb.rpc("lead_counties");
+  const names = (src || []).map((r) => r.county);
+  for (const r of src || []) box.append(el("label", {}, el("input", { type: "checkbox", value: r.county, "data-f": "county" }), r.county));
   if (!names.length && !error) box.append(el("span", { class: "sub", text: "No counties loaded yet" }));
 }
 async function buildStaticFilters() {
