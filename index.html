@@ -633,10 +633,41 @@ async function renderPipePanel(propertyId, pp) {
     if (!$("pipe").classList.contains("hidden")) loadPipeline();
   };
   const phones = data.phones || [];
-  pp.append(el("h3", { text: "Phone numbers", style: "margin-top:14px" }));
-  if (!phones.length) pp.append(el("p", { class: "sub", text: "None yet. Skip tracing (Get phone numbers) is the next feature being built." }));
-  for (const ph of phones) pp.append(el("div", {}, el("b", { text: ph.value }), " ",
-    el("span", { class: "sub", text: [ph.name, ph.line_type, ph.on_dnc ? "On Do Not Call list: don't cold call" : null, ph.opted_out ? "Asked not to be contacted" : null].filter(Boolean).join(", ") })));
+  pp.append(el("h3", { text: "Owner contact info", style: "margin-top:14px" }));
+  const fmtPhone = (v) => { const d = String(v).replace(/\D/g, "").slice(-10); return d.length === 10 ? "(" + d.slice(0, 3) + ") " + d.slice(3, 6) + "-" + d.slice(6) : v; };
+  const tmsg = el("span", { class: "sub", role: "status" });
+  const trace = async (force) => {
+    tmsg.textContent = "Looking up the owner…";
+    const r = await sb.functions.invoke("skiptrace", { body: { lead_id: L.id, force: !!force } });
+    if (r.error) {
+      let m = r.error.message; try { m = (await r.error.context.json()).error || m; } catch (e) { /* keep generic */ }
+      tmsg.textContent = m; return;
+    }
+    renderPipePanel(propertyId, pp);
+  };
+  if (!data.traced_at) {
+    const go = el("button", { class: "primary small", type: "button", text: "Get phone numbers" });
+    go.onclick = () => { go.disabled = true; trace(false).finally(() => { go.disabled = false; }); };
+    pp.append(el("div", { class: "row2" }, go, tmsg),
+      el("p", { class: "note", text: "Uses Tracerfy: about $0.10 when the owner is found, free if there's no match." }));
+  } else {
+    const again = el("button", { class: "link", type: "button", text: "Run again (paid)" });
+    again.onclick = () => { if (confirm("Run a fresh skip trace? Tracerfy charges again if it finds the owner.")) trace(true); };
+    pp.append(el("p", { class: "sub" }, "Skip traced " + when(data.traced_at) + ". ", again, " ", tmsg));
+  }
+  if (data.traced_at && !phones.length) pp.append(el("p", { class: "sub", text: "No phone numbers found for this owner." }));
+  if (phones.some((ph) => ph.litigator))
+    pp.append(el("p", { class: "msg err", text: "Warning: a person on this lead is flagged as a TCPA litigator (sues over calls and texts). Don't call or text them; use mail." }));
+  for (const ph of phones) {
+    const flags = [ph.on_dnc ? "Do Not Call list" : null, ph.litigator ? "Litigator" : null, ph.deceased ? "Deceased" : null,
+      ph.opted_out ? "Asked not to be contacted" : null].filter(Boolean);
+    pp.append(el("div", { class: "ctr" }, el("b", { text: fmtPhone(ph.value) }), " ",
+      el("span", { class: "sub", text: [ph.name + (ph.owner ? " (owner)" : ""), ph.line_type].filter(Boolean).join(", ") }), " ",
+      ...flags.map((f) => el("span", { class: "badge warn", text: f }))));
+  }
+  for (const em of data.emails || []) pp.append(el("div", { class: "sub", text: em.value + " (" + em.name + ")" }));
+  if (phones.length) pp.append(el("p", { class: "note", text: "Calling and texting stay off until BAP's Texas telemarketing registration is filed. " +
+    "Numbers on the Do Not Call list can't be cold-called even then." }));
   const hist = el("ul", { class: "hist" });
   for (const h of data.history || []) hist.append(el("li", {}, el("time", { text: when(h.at) }), h.body || ""));
   pp.append(el("h3", { text: "History", style: "margin-top:14px" }), hist);
