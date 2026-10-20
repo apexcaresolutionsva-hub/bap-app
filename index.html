@@ -54,6 +54,24 @@ header.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; d
 .bar button { background: transparent; border: 1px solid currentColor; color: inherit; border-radius: var(--radius);
   padding: 5px 12px; cursor: pointer; }
 .bar .who { opacity: .85; font-size: 14px; }
+.views { display: flex; gap: 4px; }
+.bar .views button { border-color: transparent; opacity: .8; }
+.bar .views button[aria-pressed="true"] { border-color: currentColor; opacity: 1; font-weight: 600; }
+.pipe { padding: 18px 22px; }
+.stages { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.stages button { background: var(--bg); border: 1px solid var(--line); border-radius: 14px; padding: 4px 12px; cursor: pointer; font-size: 13px; }
+.stages button[aria-pressed="true"] { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); }
+.due { color: var(--sale); font-weight: 700; }
+.panel { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin: 6px 0 18px; background: var(--panel); }
+.panel h3 { font-size: 15px; margin: 0 0 10px; }
+.panel .row2 { flex-wrap: wrap; margin-bottom: 10px; }
+.panel label { font-size: 12px; font-weight: 600; color: var(--muted); display: grid; gap: 3px; }
+.panel select, .panel input, .panel textarea { padding: 7px 9px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); font: inherit; }
+.panel textarea { width: 100%; min-height: 64px; resize: vertical; }
+.hist { list-style: none; padding: 0; margin: 12px 0 0; font-size: 14px; }
+.hist li { padding: 6px 0; border-top: 1px solid var(--line); }
+.hist time { display: block; font-size: 12px; color: var(--muted); }
+@media (max-width: 860px) { .pipe { padding: 14px; } .bar .who { display: none; } }
 
 /* sign in */
 .auth { max-width: 380px; margin: 12vh auto; padding: 0 20px; }
@@ -149,7 +167,11 @@ tbody tr:last-child td { border-bottom: 0; }
 </head>
 <body>
 <header class="bar">
-  <span class="mark">BAP Leads</span>
+  <span class="mark">BAP</span>
+  <nav class="views hidden" id="views" aria-label="Views">
+    <button type="button" id="vLeads" aria-pressed="true">Leads</button>
+    <button type="button" id="vPipe" aria-pressed="false">Pipeline</button>
+  </nav>
   <span class="spacer"></span>
   <span class="who" id="who"></span>
   <button id="signout" class="hidden" type="button">Sign out</button>
@@ -226,6 +248,22 @@ tbody tr:last-child td { border-bottom: 0; }
   </main>
 </div>
 
+<section class="pipe hidden" id="pipe" aria-label="Pipeline">
+  <div class="toolbar">
+    <span class="count" id="pCount">Pipeline</span>
+    <span class="spacer"></span>
+    <label class="sub"><input type="checkbox" id="pDue"> Due for follow-up only</label>
+  </div>
+  <div class="stages" id="pStages"></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Follow-up</th><th>Property</th><th>Owner</th><th>Stage</th><th>Signals</th><th>Auction</th><th class="num">Phones</th><th>Last note</th></tr></thead>
+      <tbody id="pRows"></tbody>
+    </table>
+    <div class="empty hidden" id="pEmpty">Nothing here yet. Open a lead and choose Add to pipeline.</div>
+  </div>
+</section>
+
 <div class="scrim hidden" id="scrim"></div>
 <aside class="drawer" id="drawer" aria-label="Lead detail" aria-hidden="true">
   <button class="ghost close" id="closeDrawer" type="button">Close</button>
@@ -263,10 +301,10 @@ let state = { page: 0, total: 0, rows: [] };
 let signUp = false;
 
 /* ---------- auth ---------- */
-function showAuth() { $("auth").classList.remove("hidden"); $("app").classList.add("hidden"); $("signout").classList.add("hidden"); $("who").textContent = ""; }
+function showAuth() { $("auth").classList.remove("hidden"); $("app").classList.add("hidden"); $("pipe").classList.add("hidden"); $("views").classList.add("hidden"); $("signout").classList.add("hidden"); $("who").textContent = ""; }
 async function showApp(user) {
   $("auth").classList.add("hidden"); $("app").classList.remove("hidden");
-  $("signout").classList.remove("hidden"); $("who").textContent = user.email;
+  $("signout").classList.remove("hidden"); $("who").textContent = user.email; $("views").classList.remove("hidden");
   await loadCounties(); await buildStaticFilters(); await loadSaved(); await search();
 }
 $("authSwap").onclick = () => {
@@ -406,6 +444,7 @@ async function openDetail(id) {
     p.senior_exempt && "Senior (65+)", p.homestead && "Homestead"].filter(Boolean).join(", ");
   fact("Owner signals", tags);
   box.append(facts);
+  const pp = el("div", { class: "panel", id: "pipePanel" }); box.append(pp); renderPipePanel(id, pp);
   for (const e of data.events || []) {
     const f = e.facts || {};
     const dl = el("dl");
@@ -436,6 +475,107 @@ function closeDetail() { $("drawer").classList.remove("open"); $("drawer").setAt
 $("closeDrawer").onclick = closeDetail; $("scrim").onclick = closeDetail;
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDetail(); });
 $("openFilters").onclick = () => { $("filters").classList.add("open"); $("scrim").classList.remove("hidden"); };
+
+
+/* ---------- pipeline ---------- */
+const STAGES = { new: "New", researching: "Researching", contacted: "Contacted", negotiating: "Negotiating",
+  under_contract: "Under contract", marketing: "Marketing to buyers", assigned: "Assigned", closed: "Closed", dead: "Dead" };
+const ACTIVE = ["new", "researching", "contacted", "negotiating", "under_contract", "marketing", "assigned"];
+let pStage = "active";
+function setView(v) {
+  const pipe = v === "pipe";
+  $("app").classList.toggle("hidden", pipe); $("pipe").classList.toggle("hidden", !pipe);
+  $("vLeads").setAttribute("aria-pressed", String(!pipe)); $("vPipe").setAttribute("aria-pressed", String(pipe));
+  if (pipe) loadPipeline();
+}
+$("vLeads").onclick = () => setView("leads");
+$("vPipe").onclick = () => setView("pipe");
+$("pDue").onchange = () => loadPipeline();
+function stageButtons() {
+  const box = $("pStages"); box.textContent = "";
+  const opts = [["active", "All active"], ...Object.entries(STAGES)];
+  for (const [v, t] of opts) {
+    const b = el("button", { type: "button", "aria-pressed": String(v === pStage), text: t });
+    b.onclick = () => { pStage = v; loadPipeline(); }; box.append(b);
+  }
+}
+const when = (ts) => ts ? new Date(ts).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+async function loadPipeline() {
+  stageButtons();
+  $("pCount").textContent = "Loading…";
+  const stages = pStage === "active" ? ACTIVE : [pStage];
+  const { data, error } = await sb.rpc("pipeline_list", { p_stages: stages, p_due_only: $("pDue").checked });
+  const tb = $("pRows"); tb.textContent = "";
+  if (error) { $("pCount").textContent = "Couldn't load the pipeline"; $("pEmpty").textContent = error.message; $("pEmpty").classList.remove("hidden"); return; }
+  $("pCount").textContent = data.length.toLocaleString("en-US") + (data.length === 1 ? " lead in pipeline" : " leads in pipeline");
+  $("pEmpty").textContent = "Nothing here yet. Open a lead and choose Add to pipeline.";
+  $("pEmpty").classList.toggle("hidden", data.length > 0);
+  const now = Date.now();
+  for (const r of data) {
+    const due = r.next_action_at && new Date(r.next_action_at).getTime() <= now;
+    const chips = el("div", { class: "chips" });
+    for (const k of r.kinds || []) chips.append(el("span", { class: "chip " + k, text: KINDS[k] || k }));
+    const tr = el("tr", { tabindex: "0" },
+      el("td", {}, el("span", { class: due ? "due" : "", text: r.next_action_at ? (due ? "Due " : "") + when(r.next_action_at) : "None set" })),
+      el("td", {}, el("div", { class: "addr", text: r.address_line || "Address unknown" }),
+        el("div", { class: "sub", text: [[r.city, r.zip].filter(Boolean).join(" "), r.county + " County"].join(", ") })),
+      el("td", { text: title(r.owner_name) || "Not on file" }),
+      el("td", { text: STAGES[r.stage] || r.stage }),
+      el("td", {}, chips),
+      el("td", {}, saleCell(r.next_sale)),
+      el("td", { class: "num", text: String(r.phones || 0) }),
+      el("td", { class: "sub", text: (r.last_note || "").slice(0, 80) }));
+    tr.onclick = () => openDetail(r.property_id);
+    tr.onkeydown = (e) => { if (e.key === "Enter") openDetail(r.property_id); };
+    tb.append(tr);
+  }
+}
+const localInput = (ts) => { if (!ts) return ""; const d = new Date(ts); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
+async function renderPipePanel(propertyId, pp) {
+  pp.textContent = "";
+  const { data, error } = await sb.rpc("pipeline_lead", { p_property: propertyId });
+  if (error) { pp.append(el("p", { class: "msg err", text: error.message })); return; }
+  if (!data) {
+    pp.append(el("h3", { text: "Not in your pipeline yet" }));
+    const add = el("button", { class: "primary", type: "button", text: "Add to pipeline" });
+    add.onclick = async () => {
+      add.disabled = true; add.textContent = "Adding…";
+      const r = await sb.rpc("add_to_pipeline", { p_property: propertyId });
+      if (r.error) { add.disabled = false; add.textContent = "Add to pipeline"; pp.append(el("p", { class: "msg err", text: r.error.message })); return; }
+      renderPipePanel(propertyId, pp);
+      if (!$("pipe").classList.contains("hidden")) loadPipeline();
+    };
+    pp.append(add); return;
+  }
+  const L = data.lead;
+  pp.append(el("h3", { text: "In your pipeline" }));
+  const stage = el("select", { id: "ppStage" });
+  for (const [v, t] of Object.entries(STAGES)) { const o = el("option", { value: v, text: t }); if (v === L.stage) o.selected = true; stage.append(o); }
+  const next = el("input", { type: "datetime-local", id: "ppNext", value: localInput(L.next_action_at) });
+  const note = el("textarea", { id: "ppNote", placeholder: "What happened? e.g. Left voicemail, owner wants $180k" });
+  const save = el("button", { class: "primary", type: "button", text: "Save" });
+  const msg = el("span", { class: "sub", role: "status" });
+  pp.append(el("div", { class: "row2" }, el("label", {}, "Stage", stage), el("label", {}, "Next follow-up", next)),
+    el("label", {}, "Note", note), el("div", { class: "row2", style: "margin-top:10px" }, save, msg));
+  save.onclick = async () => {
+    save.disabled = true; msg.textContent = "Saving…";
+    const args = { p_lead: L.id, p_stage: stage.value !== L.stage ? stage.value : null, p_note: note.value,
+      p_next_action: next.value ? new Date(next.value).toISOString() : null, p_clear_next: !next.value };
+    const r = await sb.rpc("update_lead", args);
+    save.disabled = false;
+    if (r.error) { msg.textContent = "Couldn't save: " + r.error.message; return; }
+    renderPipePanel(propertyId, pp);
+    if (!$("pipe").classList.contains("hidden")) loadPipeline();
+  };
+  const phones = data.phones || [];
+  pp.append(el("h3", { text: "Phone numbers", style: "margin-top:14px" }));
+  if (!phones.length) pp.append(el("p", { class: "sub", text: "None yet. Skip tracing (Get phone numbers) is the next feature being built." }));
+  for (const ph of phones) pp.append(el("div", {}, el("b", { text: ph.value }), " ",
+    el("span", { class: "sub", text: [ph.name, ph.line_type, ph.on_dnc ? "On Do Not Call list: don't cold call" : null, ph.opted_out ? "Asked not to be contacted" : null].filter(Boolean).join(", ") })));
+  const hist = el("ul", { class: "hist" });
+  for (const h of data.history || []) hist.append(el("li", {}, el("time", { text: when(h.at) }), h.body || ""));
+  pp.append(el("h3", { text: "History", style: "margin-top:14px" }), hist);
+}
 
 /* ---------- saved lists ---------- */
 async function loadSaved(selectName) {
