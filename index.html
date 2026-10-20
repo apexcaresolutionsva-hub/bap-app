@@ -1258,7 +1258,7 @@ function waterfall(steps) {
     else if (kind === "result") { a = 0; b = v; color = v >= 0 ? C.good : C.bad; }
     else { a = run; b = run + v; run = b; color = v < 0 ? C.bad : C.good; }
     const left = pos(Math.min(a, b)), w = Math.max(0.8, Math.abs(pos(b) - pos(a)));
-    box.append(el("div", { style: "display:grid;grid-template-columns:96px minmax(0,1fr) 64px;gap:8px;align-items:center;margin:3px 0;font-size:12px" },
+    box.append(el("div", { style: "display:grid;grid-template-columns:112px minmax(0,1fr) 62px;gap:6px;align-items:center;margin:3px 0;font-size:12px" },
       el("span", { style: "color:var(--muted,#5b6876);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" + (kind ? ";font-weight:700;color:var(--ink,#16202b)" : ""), text: label }),
       el("div", { style: "position:relative;height:16px" },
         el("div", { style: `position:absolute;left:${left}%;width:${w}%;top:0;bottom:0;background:${color};border-radius:3px;-webkit-print-color-adjust:exact;print-color-adjust:exact` })),
@@ -1271,11 +1271,11 @@ function waterfallSteps(i, r) {
     const u = Object.fromEntries(r.uses);
     const loanCost = (u["Loan points & fees"] || 0) + (r.uses[4] ? r.uses[4][1] : 0);
     return [["Sale price (ARV)", i.arv, "total"], ["Selling costs", -r.sellCosts], ["Purchase", -i.purchase], ["Rehab", -i.rehab],
-      ["Loan costs", -loanCost], ["Closing + holding", -(r.uses[2][1] + r.uses[5][1])], ["Your profit", r.profit, "result"]].filter((s) => s[2] || s[1]);
+      ["Loan costs", -loanCost], ["Close + hold", -(r.uses[2][1] + r.uses[5][1])], ["Your profit", r.profit, "result"]].filter((s) => s[2] || s[1]);
   }
   const rent = i.rent, ops = rent * i.opexPct / 100, debt = (r.debtService || 0) / 12;
-  return [["Rent", rent, "total"], ["Vacancy, mgmt, repairs", -ops], ["Taxes + insurance", -i.taxInsMonthly], ["Mortgage", -debt],
-    ["Cash flow / month", r.cashFlow / 12, "result"]].filter((s) => s[2] || s[1]);
+  return [["Rent", rent, "total"], ["Vacancy + upkeep", -ops], ["Tax + insurance", -i.taxInsMonthly], ["Mortgage", -debt],
+    ["Cash flow", r.cashFlow / 12, "result"]].filter((s) => s[2] || s[1]);
 }
 // bullet bar: value bar on a track, a target tick, and a plain-English line underneath
 function bullet(label, value, target, max, fmt, goodWhen, note) {
