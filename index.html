@@ -182,6 +182,35 @@ tbody tr:last-child td { border-bottom: 0; }
   header.bar { padding: 10px 14px; }
 }
 @media (prefers-reduced-motion: reduce) { .drawer, aside.filters { transition: none; } }
+
+/* phones: fit the screen exactly, tables become cards, tabs move to a bottom bar (app-style) */
+@media (max-width: 860px) {
+  html, body { overflow-x: clip; }
+  .app { grid-template-columns: minmax(0, 1fr); }
+  body.signed-in { padding-bottom: calc(66px + env(safe-area-inset-bottom, 0px)); }
+  header.bar { gap: 10px; }
+  .bar .views { position: fixed; left: 0; right: 0; bottom: 0; z-index: 12; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 4px; background: var(--brand); padding: 6px 6px calc(env(safe-area-inset-bottom, 0px) + 6px);
+    border-top: 1px solid rgba(255, 255, 255, .18); box-shadow: 0 -4px 14px rgba(10, 20, 35, .15); }
+  .bar .views button { border: 0; border-radius: 8px; padding: 9px 1px; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar .views button[aria-pressed="true"] { background: rgba(255, 255, 255, .18); }
+  .toolbar { gap: 8px; }
+  .toolbar .count { width: 100%; order: -1; }
+  .table-wrap { overflow: visible; border: 0; border-radius: 0; }
+  .table-wrap table { min-width: 0; }
+  .table-wrap thead { display: none; }
+  .table-wrap tbody tr { display: block; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; background: var(--bg); }
+  .table-wrap tbody tr:hover { background: var(--bg); }
+  .table-wrap tbody tr:last-child td, .table-wrap td { border: 0; }
+  .table-wrap td { display: flex; gap: 10px; align-items: baseline; padding: 3px 0; text-align: left; min-width: 0; }
+  .table-wrap td.num { text-align: left; }
+  .table-wrap td:empty { display: none; }
+  .table-wrap td[data-label]::before { content: attr(data-label); flex: 0 0 92px; color: var(--muted); font-size: 12px; font-weight: 600; }
+  .table-wrap td > * { min-width: 0; overflow-wrap: anywhere; }
+  .pager { justify-content: space-between; }
+  .grid4 { grid-template-columns: minmax(0, 1fr); }
+  .drawer { padding-left: 16px; padding-right: 16px; }
+}
 </style>
 </head>
 <body>
@@ -191,6 +220,7 @@ tbody tr:last-child td { border-bottom: 0; }
     <button type="button" id="vLeads" aria-pressed="true">Leads</button>
     <button type="button" id="vPipe" aria-pressed="false">Pipeline</button>
     <button type="button" id="vDeals" aria-pressed="false">Contracts</button>
+    <button type="button" id="vLend" aria-pressed="false">Lenders</button>
     <button type="button" id="vSvc" aria-pressed="false">Services</button>
   </nav>
   <span class="spacer"></span>
@@ -303,6 +333,21 @@ tbody tr:last-child td { border-bottom: 0; }
   </div>
 </section>
 
+<section class="pipe hidden" id="lend" aria-label="Lenders">
+  <div class="toolbar"><span class="count" id="lCount">Lenders and deal numbers</span></div>
+  <p class="sub" style="margin-top:-6px">Every deal you run the numbers on lands here with its verdict. Open one to adjust it or print a lender packet.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Property</th><th>Strategy</th><th>Verdict</th><th class="num">Profit / cash flow</th><th class="num">Your cash</th><th>Saved</th></tr></thead>
+    <tbody id="lRows"></tbody></table>
+    <div class="empty hidden" id="lEmpty">No deals yet. Open a lead in your pipeline, scroll to Deal numbers, and choose Save these numbers.</div></div>
+  <details class="panel" id="lTargets" style="margin-top:18px"><summary style="cursor:pointer;font-weight:700">Your deal targets</summary>
+    <p class="sub">Verdicts and charts measure every deal against these. Defaults come from common investor rules of thumb; change them to fit your market.</p>
+    <div class="grid4" id="lTgtForm"></div>
+    <div class="row2" style="margin-top:8px"><button class="primary small" type="button" id="lTgtSave">Save targets</button><span class="sub" id="lTgtMsg" role="status"></span></div>
+  </details>
+  <div class="panel"><b>Lender directory</b><p class="sub" style="margin:4px 0 0">Coming next: hard-money, DSCR and transactional lenders who opt in to receive BAP deal packets, with one-tap sending once your business email is set up. Until then, print the lender packet from any deal and email it yourself.</p></div>
+</section>
+
 <section class="pipe hidden" id="svc" aria-label="Services">
   <div class="toolbar"><span class="count">Services</span><span class="spacer"></span><span class="sub" id="svcPlan"></span></div>
   <p class="sub" style="margin-top:-6px">Pay only when you use them. Members get lower prices. Charges are recorded on your BAP account.</p>
@@ -326,6 +371,16 @@ const SUPABASE_URL = "https://rpcdrgzcaarggupctede.supabase.co";
 const SUPABASE_KEY = "sb_publishable_qyI3EzhYghqCmRnhu41ucg_lhzhufqt";   // publishable: safe in a browser, data protected by row-level security
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const PAGE = 100;
+// phones show table rows as cards: give every cell its column name as a small label
+new MutationObserver(() => {
+  for (const t of document.querySelectorAll(".table-wrap table")) {
+    const hs = [...t.querySelectorAll("thead th")].map((h) => h.textContent.trim());
+    for (const tr of t.querySelectorAll("tbody tr")) [...tr.children].forEach((td, i) => {
+      if (hs[i] && !td.hasAttribute("data-label") && !td.hasAttribute("colspan")) td.setAttribute("data-label", hs[i]);
+    });
+  }
+  document.body.classList.toggle("signed-in", !document.getElementById("views").classList.contains("hidden"));
+}).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
 // installable app: register the offline helper (ignored by browsers that don't support it)
 if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 
@@ -568,6 +623,7 @@ let pStage = "active";
 function setView(v) {
   $("app").classList.toggle("hidden", v !== "leads"); $("pipe").classList.toggle("hidden", v !== "pipe");
   $("deals").classList.toggle("hidden", v !== "deals"); $("svc").classList.toggle("hidden", v !== "svc");
+  $("lend").classList.toggle("hidden", v !== "lend"); $("vLend").setAttribute("aria-pressed", String(v === "lend")); if (v === "lend") loadLenders();
   $("vSvc").setAttribute("aria-pressed", String(v === "svc")); if (v === "svc") loadServices();
   $("vLeads").setAttribute("aria-pressed", String(v === "leads")); $("vPipe").setAttribute("aria-pressed", String(v === "pipe"));
   $("vDeals").setAttribute("aria-pressed", String(v === "deals"));
@@ -576,6 +632,7 @@ function setView(v) {
 }
 $("vDeals").onclick = () => setView("deals");
 $("vSvc").onclick = () => setView("svc");
+$("vLend").onclick = () => setView("lend");
 $("dStatus").onchange = () => loadVault();
 $("vLeads").onclick = () => setView("leads");
 $("vPipe").onclick = () => setView("pipe");
@@ -722,6 +779,7 @@ async function renderDealPanel(leadId, propertyId, dp, pp) {
       const x = document.getElementById(id);
       if (x && !x.value && val) { x.value = Math.round(val); x.dispatchEvent(new Event("input", { bubbles: true })); }
     }
+    if (document.getElementById("mStrat")) document.getElementById("mStrat").dispatchEvent(new Event("change", { bubbles: true }));
     vbox.textContent = "";
     if (!v || v.value == null) return;
     vbox.append(el("div", { class: "mao", text: "As-is value " + money(v.value) }),
@@ -1123,6 +1181,222 @@ function dealCalc(i) {
   return out;
 }
 
+/* ---------- deal visuals: verdict, key numbers vs targets, waterfall, target bars, comps, what-if ---------- */
+const TARGET_DEFAULTS = { flip_min_profit: 25000, flip_min_pct_arv: 10, rental_min_cashflow: 200, rental_floor_cashflow: 100,
+  rental_min_coc: 7, min_dscr: 1.25, max_loan_to_arv: 70, mao_pct: 70 };
+let targetsCache = null;
+async function dealTargets(force) {
+  if (targetsCache && !force) return targetsCache;
+  const { data } = await sb.rpc("my_deal_targets");
+  const t = { ...TARGET_DEFAULTS };
+  for (const [k, v] of Object.entries(data || {})) if (v != null && isFinite(Number(v))) t[k] = Number(v);
+  return (targetsCache = t);
+}
+const C = { good: "#1f7a4d", warn: "#b26a00", bad: "#b42318", blue: "#2a78d6", track: "#d9dee5" };
+const kfmt = (v) => { const a = Math.abs(v), s = v < 0 ? "-$" : "$";
+  if (a < 10000) return s + Math.round(a).toLocaleString("en-US");
+  const k = a / 1000; return s + (a >= 100000 || Math.abs(k - Math.round(k)) < 0.05 ? Math.round(k) : k.toFixed(1)) + "K"; };
+const pctf = (v, d = 1) => v == null || !isFinite(v) ? "n/a" : v.toFixed(d) + "%";
+function flipTarget(i, T) { return Math.max(T.flip_min_profit, (i.arv || 0) * T.flip_min_pct_arv / 100); }
+
+// one sentence + color for the whole deal
+function dealVerdict(i, r, T) {
+  if (i.strategy === "flip") {
+    const tgt = flipTarget(i, T);
+    if (r.profit >= tgt) return { tone: "good", title: "Good flip at this price", sub: "Clears your " + kfmt(tgt) + " profit target by " + kfmt(r.profit - tgt) };
+    if (r.profit >= tgt * 0.5) return { tone: "warn", title: "Thin margin", sub: kfmt(tgt - r.profit) + " short of your " + kfmt(tgt) + " target. Negotiate the price down or trim the rehab." };
+    if (r.profit > 0) return { tone: "bad", title: "Too thin to flip", sub: "Only " + kfmt(r.profit) + " profit. One surprise wipes it out." };
+    return { tone: "bad", title: "Loses money at this price", sub: "Lower the offer or pass." };
+  }
+  const cf = r.cashFlow / 12;
+  const dscrOk = r.dscr == null || r.dscr >= T.min_dscr;
+  if (cf >= T.rental_min_cashflow && dscrOk) return { tone: "good", title: "Solid rental", sub: kfmt(cf) + "/mo cash flow beats your " + kfmt(T.rental_min_cashflow) + " target" };
+  if (cf >= T.rental_floor_cashflow) return { tone: "warn", title: "Thin cash flow", sub: kfmt(cf) + "/mo is under your " + kfmt(T.rental_min_cashflow) + " target" + (dscrOk ? "" : ", and lenders may balk at the debt coverage") };
+  if (cf >= 0) return { tone: "bad", title: "Barely breaks even", sub: "One vacancy or repair puts it in the red." };
+  return { tone: "bad", title: "Costs you money every month", sub: kfmt(cf) + "/mo after the mortgage. Lower the price, raise the rent, or put more down." };
+}
+const TONE = { good: ["#e6f4ec", C.good, "\u2714"], warn: ["#fff4dd", C.warn, "!"], bad: ["#fdecea", C.bad, "\u2716"] };
+function verdictBanner(v) {
+  const [bg, fg, icon] = TONE[v.tone];
+  return el("div", { style: `display:flex;gap:10px;align-items:center;background:${bg};color:${fg};border-radius:12px;padding:10px 12px;margin:8px 0 10px;-webkit-print-color-adjust:exact;print-color-adjust:exact` },
+    el("span", { style: `flex:none;width:26px;height:26px;border-radius:50%;background:${fg};color:#fff;display:grid;place-items:center;font-weight:700`, text: icon }),
+    el("div", {}, el("div", { style: "font-weight:700;font-size:15px", text: v.title }), el("div", { style: "font-size:13px", text: v.sub })));
+}
+function kpi(label, value, note, tone) {
+  return el("div", { style: "background:var(--panel,#f5f7fa);border:1px solid var(--line,#dde3ea);border-radius:10px;padding:10px 12px;min-width:0" },
+    el("div", { style: "font-size:12px;color:var(--muted,#5b6876)", text: label }),
+    el("div", { style: "font-size:21px;font-weight:700;font-variant-numeric:tabular-nums;margin:2px 0", text: value }),
+    el("div", { style: `font-size:12px;color:${tone ? C[tone] : "var(--muted,#5b6876)"}`, text: note }));
+}
+function kpiGrid(i, r, T) {
+  const g = el("div", { style: "display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px" });
+  if (i.strategy === "flip") {
+    const tgt = flipTarget(i, T), d = r.profit - tgt;
+    g.append(kpi("Profit", money(r.profit), (d >= 0 ? "+" : "") + kfmt(d) + " vs " + kfmt(tgt) + " target", d >= 0 ? "good" : "bad"),
+      kpi("Cash you need", money(r.cashNeeded), r.loan ? "Lender covers " + money(r.loan) : "All your own cash"),
+      kpi("Return on your cash", pctf(r.roi, 0), "In " + r.months + " months (" + pctf(r.annualRoi, 0) + "/yr)"),
+      kpi("Profit margin", pctf(r.margin), r.margin >= T.flip_min_pct_arv ? "Above " + T.flip_min_pct_arv + "% of sale price" : "Below " + T.flip_min_pct_arv + "% of sale price", r.margin >= T.flip_min_pct_arv ? "good" : "warn"));
+  } else {
+    const cf = r.cashFlow / 12;
+    g.append(kpi("Cash flow", money(cf) + "/mo", (cf >= T.rental_min_cashflow ? "Meets" : "Under") + " your " + kfmt(T.rental_min_cashflow) + "/mo target", cf >= T.rental_min_cashflow ? "good" : cf >= T.rental_floor_cashflow ? "warn" : "bad"),
+      i.strategy === "brrrr" ? kpi("Cash left in the deal", r.cashLeftIn <= 0 ? "$0" : money(r.cashLeftIn), r.cashLeftIn <= 0 ? "Refinance returns all of it" : "After the refinance", r.cashLeftIn <= 0 ? "good" : null)
+        : kpi("Cash you need", money(r.cashNeeded), r.loan ? "Loan covers " + money(r.loan) : "All your own cash"),
+      kpi("Cash-on-cash", r.coc == null ? "Infinite" : pctf(r.coc), "Target " + T.rental_min_coc + "%+", r.coc == null || r.coc >= T.rental_min_coc ? "good" : "warn"),
+      kpi("Debt coverage", r.dscr ? r.dscr.toFixed(2) + "x" : "No loan", r.dscr ? "Lenders want " + T.min_dscr + "x+" : "Bought with cash", !r.dscr || r.dscr >= T.min_dscr ? "good" : r.dscr >= 1 ? "warn" : "bad"));
+  }
+  return g;
+}
+// horizontal waterfall: start total, each cost floats down, ends at the result (reads well on phones and in print)
+function waterfall(steps) {
+  const tot = steps[0][1], hi = Math.max(tot, ...steps.map((s) => s[1])), lo = Math.min(0, ...(() => { let run = 0; return steps.map(([, v, kind]) => kind === "total" ? (run = v) : (run += v)); })());
+  const span = hi - lo || 1, pos = (v) => ((v - lo) / span) * 100;
+  const box = el("div", { style: "margin:4px 0 2px" });
+  let run = 0;
+  for (const [label, v, kind] of steps) {
+    let a, b, color;
+    if (kind === "total") { a = 0; b = v; run = v; color = C.blue; }
+    else if (kind === "result") { a = 0; b = v; color = v >= 0 ? C.good : C.bad; }
+    else { a = run; b = run + v; run = b; color = v < 0 ? C.bad : C.good; }
+    const left = pos(Math.min(a, b)), w = Math.max(0.8, Math.abs(pos(b) - pos(a)));
+    box.append(el("div", { style: "display:grid;grid-template-columns:96px minmax(0,1fr) 64px;gap:8px;align-items:center;margin:3px 0;font-size:12px" },
+      el("span", { style: "color:var(--muted,#5b6876);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" + (kind ? ";font-weight:700;color:var(--ink,#16202b)" : ""), text: label }),
+      el("div", { style: "position:relative;height:16px" },
+        el("div", { style: `position:absolute;left:${left}%;width:${w}%;top:0;bottom:0;background:${color};border-radius:3px;-webkit-print-color-adjust:exact;print-color-adjust:exact` })),
+      el("span", { style: "text-align:right;font-variant-numeric:tabular-nums" + (kind ? ";font-weight:700" : ""), text: kind ? kfmt(v) : (v < 0 ? "-" : "+") + kfmt(Math.abs(v)) })));
+  }
+  return box;
+}
+function waterfallSteps(i, r) {
+  if (i.strategy === "flip") {
+    const u = Object.fromEntries(r.uses);
+    const loanCost = (u["Loan points & fees"] || 0) + (r.uses[4] ? r.uses[4][1] : 0);
+    return [["Sale price (ARV)", i.arv, "total"], ["Selling costs", -r.sellCosts], ["Purchase", -i.purchase], ["Rehab", -i.rehab],
+      ["Loan costs", -loanCost], ["Closing + holding", -(r.uses[2][1] + r.uses[5][1])], ["Your profit", r.profit, "result"]].filter((s) => s[2] || s[1]);
+  }
+  const rent = i.rent, ops = rent * i.opexPct / 100, debt = (r.debtService || 0) / 12;
+  return [["Rent", rent, "total"], ["Vacancy, mgmt, repairs", -ops], ["Taxes + insurance", -i.taxInsMonthly], ["Mortgage", -debt],
+    ["Cash flow / month", r.cashFlow / 12, "result"]].filter((s) => s[2] || s[1]);
+}
+// bullet bar: value bar on a track, a target tick, and a plain-English line underneath
+function bullet(label, value, target, max, fmt, goodWhen, note) {
+  const ok = goodWhen === "below" ? value <= target : value >= target;
+  const pct = (v) => Math.max(0, Math.min(100, (v / max) * 100));
+  return el("div", { style: "margin:0 0 12px" },
+    el("div", { style: "display:flex;justify-content:space-between;font-size:12px;color:var(--muted,#5b6876);margin-bottom:3px;gap:8px" },
+      el("span", { text: label }), el("span", { style: "color:var(--ink,#16202b);white-space:nowrap", text: fmt(value) + " / " + fmt(target) })),
+    el("div", { style: `position:relative;height:12px;background:${C.track};border-radius:3px;-webkit-print-color-adjust:exact;print-color-adjust:exact` },
+      el("div", { style: `position:absolute;left:0;top:0;bottom:0;width:${pct(value)}%;background:${ok ? C.good : C.bad};border-radius:3px` }),
+      el("div", { style: `position:absolute;left:calc(${pct(target)}% - 1px);top:-3px;bottom:-3px;width:2px;background:var(--ink,#16202b)` })),
+    el("div", { style: `font-size:12px;margin-top:3px;color:${ok ? C.good : C.bad}`, text: ok ? note[0] : note[1] }));
+}
+function bullets(i, r, T) {
+  const box = el("div");
+  if (i.strategy === "flip") {
+    const mao = i.arv * T.mao_pct / 100 - i.rehab;
+    if (i.arv && mao > 0) box.append(bullet("Your price vs. max offer (" + T.mao_pct + "% rule)", i.purchase, mao, Math.max(mao, i.purchase) * 1.15, kfmt, "below",
+      [kfmt(mao - i.purchase) + " of room under the max offer", kfmt(i.purchase - mao) + " over the max offer. Negotiate down."]));
+    if (i.arv && r.loan) box.append(bullet("Loan as % of ARV (lenders cap ~" + T.max_loan_to_arv + "%)", r.loan / i.arv * 100, T.max_loan_to_arv, 100, (v) => pctf(v, 0), "below",
+      ["Most hard-money lenders will fund this", "Above what most lenders fund. Expect to bring more cash."]));
+    if (i.arv) box.append(bullet("Profit as % of sale price", r.margin, T.flip_min_pct_arv, Math.max(30, r.margin * 1.2), (v) => pctf(v, 0), "above",
+      ["Enough cushion for surprises", "Not much cushion if the rehab runs over"]));
+  } else {
+    if (r.dscr) box.append(bullet("Debt coverage (rent vs. loan payment)", r.dscr, T.min_dscr, Math.max(2, r.dscr * 1.2), (v) => v.toFixed(2) + "x", "above",
+      ["Lenders like this", "Below what most rental lenders require"]));
+    box.append(bullet("Monthly cash flow", Math.max(0, r.cashFlow / 12), T.rental_min_cashflow, Math.max(T.rental_min_cashflow * 2, r.cashFlow / 12 * 1.2), kfmt, "above",
+      ["Meets your cash-flow target", "Under your cash-flow target"]));
+    if (r.coc != null) box.append(bullet("Cash-on-cash return", Math.max(0, r.coc), T.rental_min_coc, Math.max(T.rental_min_coc * 2.5, r.coc * 1.2), (v) => pctf(v, 0), "above",
+      ["Beats your " + T.rental_min_coc + "% target", "Under your " + T.rental_min_coc + "% target"]));
+  }
+  return box;
+}
+// comps strip: every recent sale as a dot on one price line, with your ARV and the estimate range marked
+function compsStrip(i, avm) {
+  const comps = (avm && avm.comps || []).map((c) => Number(c.price)).filter((v) => v > 0);
+  if (comps.length < 2 || !i.arv) return null;
+  const all = [...comps, i.arv, avm.low || i.arv, avm.high || i.arv];
+  const lo = Math.min(...all) * 0.95, hi = Math.max(...all) * 1.05, p = (v) => ((v - lo) / (hi - lo)) * 100;
+  const above = comps.filter((v) => v >= i.arv).length;
+  const box = el("div", { style: "position:relative;height:58px;margin:6px 8px 0" },
+    el("div", { style: "position:absolute;top:22px;left:0;right:0;height:2px;background:#c3c9d1" }));
+  if (avm.low && avm.high) box.append(el("div", { title: "Value estimate range", style: `position:absolute;top:14px;height:18px;left:${p(avm.low)}%;width:${p(avm.high) - p(avm.low)}%;background:#e6f4ec;border-radius:3px;-webkit-print-color-adjust:exact;print-color-adjust:exact` }));
+  for (const v of comps) box.append(el("div", { title: money(v) + " sale", style: `position:absolute;top:17px;left:calc(${p(v)}% - 6px);width:12px;height:12px;border-radius:50%;background:${C.blue};border:2px solid var(--bg,#fff);-webkit-print-color-adjust:exact;print-color-adjust:exact` }));
+  box.append(el("div", { style: `position:absolute;top:8px;left:calc(${p(i.arv)}% - 1px);width:2px;height:30px;background:var(--ink,#16202b)` }),
+    el("div", { style: `position:absolute;top:40px;left:${Math.min(80, Math.max(0, p(i.arv) - 12))}%;font-size:11px;white-space:nowrap`, text: "Your ARV " + kfmt(i.arv) }),
+    el("div", { style: "position:absolute;top:40px;left:0;font-size:11px;color:var(--muted,#5b6876)", text: kfmt(lo) }),
+    el("div", { style: "position:absolute;top:40px;right:0;font-size:11px;color:var(--muted,#5b6876)", text: kfmt(hi) }));
+  const msg = above >= Math.ceil(comps.length / 2) ? [C.good, above + " of " + comps.length + " recent sales are at or above your ARV."]
+    : [C.bad, "Only " + above + " of " + comps.length + " recent sales reach your ARV. It may be too high."];
+  return el("div", {}, box, el("div", { style: `font-size:12px;margin-top:4px;color:${msg[0]}`, text: msg[1] + " Green band = value estimate range; dots = recent sales." }));
+}
+// what-if grid: result across the two numbers most likely to be wrong
+function whatIf(i, T) {
+  const flip = i.strategy === "flip";
+  const rows = flip ? [-0.1, 0, 0.1].map((d) => ({ lab: "ARV " + kfmt(i.arv * (1 + d)), f: (x) => ({ ...x, arv: i.arv * (1 + d) }) }))
+    : [-0.1, 0, 0.1].map((d) => ({ lab: "Rent " + kfmt(i.rent * (1 + d)), f: (x) => ({ ...x, rent: i.rent * (1 + d) }) }));
+  const cols = flip ? [-0.2, 0, 0.2].map((d) => ({ lab: "Rehab " + kfmt(i.rehab * (1 + d)), f: (x) => ({ ...x, rehab: i.rehab * (1 + d) }) }))
+    : [-1, 0, 1].map((d) => ({ lab: "Rate " + (i.ltRatePct + d).toFixed(1) + "%", f: (x) => ({ ...x, ltRatePct: i.ltRatePct + d }) }));
+  const val = (x) => { const r = dealCalc(x); return flip ? r.profit : r.cashFlow / 12; };
+  const tone = (v) => flip ? (v >= flipTarget(i, T) ? "good" : v > 0 ? "warn" : "bad") : (v >= T.rental_min_cashflow ? "good" : v >= 0 ? "warn" : "bad");
+  const t = el("table", { style: "width:100%;border-collapse:separate;border-spacing:3px;table-layout:fixed;font-size:12px;min-width:0" });
+  t.append(el("tr", {}, el("td"), ...cols.map((c) => el("td", { style: "text-align:center;color:var(--muted,#5b6876);padding:2px", text: c.lab }))));
+  let worstOk = true;
+  for (const [ri, rw] of rows.entries()) t.append(el("tr", { style: "cursor:default" }, el("td", { style: "color:var(--muted,#5b6876);padding:2px;white-space:nowrap", text: rw.lab }),
+    ...cols.map((c, ci) => { const v = val(c.f(rw.f(i))), tn = tone(v), [bg, fg] = TONE[tn]; if (tn === "bad") worstOk = false;
+      return el("td", { style: `text-align:center;padding:7px 2px;border-radius:4px;background:${bg};color:${fg};font-variant-numeric:tabular-nums;-webkit-print-color-adjust:exact;print-color-adjust:exact` + (ri === 1 && ci === 1 ? `;outline:2px solid ${fg};outline-offset:-3px;font-weight:700` : ""),
+        text: kfmt(v) + (flip ? "" : "/mo") }); })));
+  return el("div", {}, t, el("div", { style: "font-size:12px;color:var(--muted,#5b6876);margin-top:4px",
+    text: worstOk ? "Even in the worst corner, the deal still works." : "Red cells lose money. Build in cushion or negotiate harder." }));
+}
+function sectionTitle(t) { return el("div", { style: "font-size:13px;font-weight:700;color:var(--muted,#5b6876);margin:16px 0 6px", text: t }); }
+function renderDealViz(box, i, r, T, avm) {
+  box.append(verdictBanner(dealVerdict(i, r, T)), kpiGrid(i, r, T),
+    sectionTitle(i.strategy === "flip" ? "Where the sale price goes" : "Where the rent goes each month"), waterfall(waterfallSteps(i, r)),
+    sectionTitle("How it measures up"), bullets(i, r, T));
+  const cs = compsStrip(i, avm);
+  if (cs) box.append(sectionTitle("Do recent sales support your ARV?"), cs);
+  if (i.strategy === "flip" ? i.arv && i.rehab : i.rent) box.append(sectionTitle(i.strategy === "flip" ? "What if the ARV or rehab is off?" : "What if the rent or rate is off?"), whatIf(i, T));
+}
+
+/* ---------- Lenders tab: saved deal models + editable targets ---------- */
+const TGT_FIELDS = [["flip_min_profit", "Flip: minimum profit ($)"], ["flip_min_pct_arv", "Flip: minimum profit (% of sale price)"],
+  ["mao_pct", "Max offer rule (% of ARV)"], ["max_loan_to_arv", "Lender loan limit (% of ARV)"],
+  ["rental_min_cashflow", "Rental: target cash flow ($/mo)"], ["rental_floor_cashflow", "Rental: warning below ($/mo)"],
+  ["rental_min_coc", "Rental: cash-on-cash target (%)"], ["min_dscr", "Debt coverage lenders want (x)"]];
+const STRAT_SHORT = { flip: "Flip", rental: "Rental", brrrr: "BRRRR" };
+async function loadLenders() {
+  const T = await dealTargets(true);
+  const form = $("lTgtForm"); form.textContent = "";
+  for (const [k, lab] of TGT_FIELDS) form.append(el("label", {}, lab, el("input", { id: "tg_" + k, inputmode: "decimal", value: T[k] })));
+  $("lTgtSave").onclick = async () => {
+    const body = {}; for (const [k] of TGT_FIELDS) body[k] = String(num($("tg_" + k).value) ?? "");
+    const r = await sb.rpc("set_deal_targets", { p_targets: body });
+    $("lTgtMsg").textContent = r.error ? "Couldn't save: " + r.error.message : "Saved. Verdicts now use these targets.";
+    if (!r.error) { targetsCache = null; loadLenders(); }
+  };
+  const { data, error } = await sb.rpc("my_deal_models", { p_limit: 200 });
+  const rows = $("lRows"); rows.textContent = "";
+  if (error) { rows.append(el("tr", {}, el("td", { colspan: "6", class: "sub", text: "Couldn't load deals: " + error.message }))); return; }
+  const seen = new Set(), list = (data || []).filter((m) => !seen.has(m.lead_id + m.strategy) && seen.add(m.lead_id + m.strategy));
+  $("lCount").textContent = list.length ? list.length + (list.length === 1 ? " deal" : " deals") + " analyzed" : "Lenders and deal numbers";
+  $("lEmpty").classList.toggle("hidden", list.length > 0);
+  for (const m of list) {
+    const i = { strategy: m.strategy, arv: Number(m.arv || 0), purchase: Number(m.purchase || 0), rehab: Number(m.rehab || 0) };
+    const flip = m.strategy === "flip", profit = Number(m.profit || 0);
+    // saved rows carry the headline result; rebuild just enough of it for the verdict
+    const v = flip ? dealVerdict(i, { profit }, T) : dealVerdict(i, { cashFlow: profit, dscr: null }, T);
+    const [bg, fg] = TONE[v.tone];
+    const tr = el("tr", {},
+      el("td", {}, el("b", { text: m.address_line || "Property" }), el("div", { class: "sub", text: [m.city, m.county ? m.county + " County" : null].filter(Boolean).join(", ") })),
+      el("td", { text: STRAT_SHORT[m.strategy] || m.strategy }),
+      el("td", {}, el("span", { style: `background:${bg};color:${fg};border-radius:10px;padding:2px 8px;font-size:12px;font-weight:700;white-space:nowrap`, text: v.title })),
+      el("td", { class: "num", text: flip ? money(profit) : money(profit / 12) + "/mo" }),
+      el("td", { class: "num", text: m.cash_needed != null ? money(m.cash_needed) : "" }),
+      el("td", { class: "sub", text: when(m.saved_at) }));
+    tr.onclick = () => { openDetail(m.property_id); setTimeout(() => { const h = [...document.querySelectorAll("#detail h3")].find((x) => x.textContent === "Deal numbers"); if (h) h.scrollIntoView({ block: "start", behavior: "smooth" }); }, 2500); };
+    rows.append(tr);
+  }
+}
+
 /* ---------- Tab 3: deal numbers (flip / rental / BRRRR) + lender packet ---------- */
 const STRATS = { flip: "Fix & flip", rental: "Buy & hold rental", brrrr: "BRRRR (rehab, rent, refinance)" };
 const FIN = { hard_money: "Hard money loan", cash: "All cash", dscr: "Long-term rental (DSCR) loan" };
@@ -1148,8 +1422,15 @@ function renderModelSection(leadId, dp, o) {
     months: N("mMonths") || 6, buyClosePct: N("mBuyCc"), holdMonthly: N("mHold"), sellPct: N("mSell"), ltvPct: N("mLtv"),
     rehabFinPct: N("mRehabFin"), ratePct: N("mRate"), pointsPct: N("mPts"), rent: N("mRent"), opexPct: N("mOpex"),
     taxInsMonthly: N("mTaxIns"), ltRatePct: N("mLtRate"), refiLtvPct: N("mRefi"), refiCostPct: N("mRefiCost"), rehabMonths: N("mRehabMo") || 1 });
-  const pct = (v) => v == null || !isFinite(v) ? "n/a" : v.toFixed(1) + "%";
-  let last = null;
+  let last = null, T = { ...TARGET_DEFAULTS };
+  dealTargets().then((t) => { T = t; show(); });
+  sb.rpc("lead_models", { p_lead: leadId }).then(({ data }) => {
+    const m = (data || [])[0]; if (!m) return;
+    const put = (id, v) => { if (v != null && $(id)) $(id).value = Math.round(Number(v)); };
+    if (m.strategy && STRATS[m.strategy]) $("mStrat").value = m.strategy;
+    put("mPurch", m.purchase); put("mRehab", m.rehab); put("mArv", m.arv); put("mMonths", m.months); put("mRent", m.rent);
+    show();
+  });
   const show = () => {
     const i = read();
     // financing must fit the strategy: a rental is held long-term (cash or DSCR), flips/BRRRR use short-term money
@@ -1166,27 +1447,15 @@ function renderModelSection(leadId, dp, o) {
     res.textContent = "";
     if (!i.purchase) { res.append(el("p", { class: "sub", text: "Enter a purchase price to see the numbers." })); return; }
     const r = dealCalc(i); last = { i, r };
-    const kv = [];
-    if (i.strategy === "flip") kv.push(["Profit", money(r.profit)], ["Cash needed", money(r.cashNeeded)], ["Return on cash", pct(r.roi)],
-      ["Annualized", pct(r.annualRoi)], ["Profit margin (of ARV)", pct(r.margin)]);
-    else kv.push(["Cash flow per year", money(r.cashFlow)], ["Per month", money(r.cashFlow / 12)], ["Cash needed", money(r.cashNeeded)],
-      ["Cap rate", pct(r.capRate)], ["Debt coverage (DSCR)", r.dscr ? r.dscr.toFixed(2) + "x" : "n/a"]);
-    if (i.strategy === "brrrr") kv.push(["Refinance loan", money(r.refi)], ["Cash back at refinance", money(r.cashOut)],
-      ["Cash left in the deal", r.cashLeftIn <= 0 ? "None (you get it all back)" : money(r.cashLeftIn)],
-      ["Cash-on-cash", r.coc == null ? "Infinite (no cash left in)" : pct(r.coc)], ["Equity after refinance", money(r.equity)]);
-    else if (i.strategy === "rental") kv.push(["Cash-on-cash", pct(r.coc)]);
-    const good = i.strategy === "flip" ? r.profit > 0 : r.cashFlow > 0;
-    res.append(el("div", { class: "mao", style: "color:" + (good ? "var(--ok)" : "var(--sale)"),
-      text: i.strategy === "flip" ? "Profit " + money(r.profit) : "Cash flow " + money(r.cashFlow / 12) + "/mo" }));
-    const t = el("table", { style: "min-width:0;font-size:14px" }); const tb = el("tbody");
-    for (const [k, v] of kv) tb.append(el("tr", { style: "cursor:default" }, el("td", { class: "sub", text: k }), el("td", { class: "num", text: v })));
-    t.append(tb); res.append(t);
+    renderDealViz(res, i, r, T, window.__lastAvm || {});
+    // the full breakdown stays one tap away for anyone who wants every line
+    const det = el("details", { style: "margin-top:12px" }, el("summary", { style: "cursor:pointer;font-size:13px;color:var(--muted)", text: "Full sources and uses" }));
     const su = el("table", { style: "min-width:0;font-size:13px;margin-top:8px" }); const sb2 = el("tbody");
     sb2.append(el("tr", {}, el("th", { text: "Uses of money" }), el("th", { class: "num", text: money(r.totalUses) })));
     for (const [k, v] of r.uses) if (v) sb2.append(el("tr", { style: "cursor:default" }, el("td", { text: k }), el("td", { class: "num", text: money(v) })));
     sb2.append(el("tr", {}, el("th", { text: "Sources of money" }), el("th", { class: "num", text: money(r.totalUses) })));
     for (const [k, v] of r.sources) sb2.append(el("tr", { style: "cursor:default" }, el("td", { text: k }), el("td", { class: "num", text: money(v) })));
-    su.append(sb2); res.append(su);
+    su.append(sb2); det.append(su); res.append(det);
   };
   box.addEventListener("input", show); box.addEventListener("change", show);
   const save = el("button", { class: "ghost small", type: "button", text: "Save these numbers" });
@@ -1216,6 +1485,7 @@ async function lenderPacket(leadId, last, msg) {
   const row = (k, v) => v == null || v === "" ? "" : "<tr><td>" + esc(k) + "</td><td class=n>" + esc(v) + "</td></tr>";
   const pct = (v) => v == null || !isFinite(v) ? "" : v.toFixed(1) + "%";
   const addr = [p.address_line, p.city, p.state || "TX", p.zip].filter(Boolean).join(", ");
+  const vizBox = el("div"); renderDealViz(vizBox, i, r, await dealTargets(), avm); const vizHtml = vizBox.outerHTML;
   const comps = (avm.comps || []).map((c) => "<tr><td>" + esc(c.address) + "</td><td class=n>" + esc(money(c.price)) + "</td><td class=n>" +
     esc(c.sqft ? Number(c.sqft).toLocaleString("en-US") : "") + "</td><td class=n>" + esc(c.miles ?? "") + "</td></tr>").join("");
   const html = "<!doctype html><html><head><meta charset='utf-8'><title>Loan request: " + esc(addr) + "</title><style>" +
@@ -1224,7 +1494,7 @@ async function lenderPacket(leadId, last, msg) {
     ".bar{background:#fff4dd;padding:8px 12px;margin-bottom:14px}@media print{.bar{display:none}}</style></head><body>" +
     "<div class=bar>Lender packet from BAP. <button onclick='print()'>Print or save as PDF</button></div>" +
     "<h1>Loan request: " + esc(STRATS[i.strategy]) + "</h1><div>" + esc(addr) + (p.county ? " (" + esc(p.county) + " County)" : "") + "</div>" +
-    "<h2>The deal</h2><table>" + row("Purchase price", money(i.purchase)) + row("Rehab budget", money(i.rehab)) + row("After-repair value (ARV)", money(i.arv)) +
+    "<h2>Summary</h2>" + vizHtml + "<h2>The deal</h2><table>" + row("Purchase price", money(i.purchase)) + row("Rehab budget", money(i.rehab)) + row("After-repair value (ARV)", money(i.arv)) +
     row("Loan requested", money(r.loan)) + row("Loan to purchase", i.finance !== "cash" ? i.ltvPct + "%" : "") +
     row("Loan to ARV", i.arv && r.loan ? pct(r.loan / i.arv * 100) : "") + row("Borrower cash in the deal", money(r.cashNeeded)) +
     row("Project length", r.months + " months") + row("Exit", i.strategy === "flip" ? "Sale at ARV" : i.strategy === "brrrr" ? "Refinance at " + i.refiLtvPct + "% of ARV" : "Long-term rental") + "</table>" +
