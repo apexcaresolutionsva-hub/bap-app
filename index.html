@@ -184,6 +184,7 @@ tbody tr:last-child td { border-bottom: 0; }
     <button type="button" id="vLeads" aria-pressed="true">Leads</button>
     <button type="button" id="vPipe" aria-pressed="false">Pipeline</button>
     <button type="button" id="vDeals" aria-pressed="false">Contracts</button>
+    <button type="button" id="vSvc" aria-pressed="false">Services</button>
   </nav>
   <span class="spacer"></span>
   <span class="who" id="who"></span>
@@ -295,6 +296,18 @@ tbody tr:last-child td { border-bottom: 0; }
   </div>
 </section>
 
+<section class="pipe hidden" id="svc" aria-label="Services">
+  <div class="toolbar"><span class="count">Services</span><span class="spacer"></span><span class="sub" id="svcPlan"></span></div>
+  <p class="sub" style="margin-top:-6px">Pay only when you use them. Members get lower prices. Charges are recorded on your BAP account.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Service</th><th>What you get</th><th class="num">Your price</th><th class="num">Member</th><th class="num">Non-member</th></tr></thead>
+    <tbody id="svcRows"></tbody></table></div>
+  <h3 style="margin:22px 0 8px">This month</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Service</th><th class="num">Uses</th><th class="num">Charged</th></tr></thead>
+    <tbody id="useRows"></tbody></table></div>
+</section>
+
 <div class="scrim hidden" id="scrim"></div>
 <aside class="drawer" id="drawer" aria-label="Lead detail" aria-hidden="true">
   <button class="ghost close" id="closeDrawer" type="button">Close</button>
@@ -332,7 +345,7 @@ let state = { page: 0, total: 0, rows: [] };
 let signUp = false;
 
 /* ---------- auth ---------- */
-function showAuth() { $("auth").classList.remove("hidden"); $("app").classList.add("hidden"); $("pipe").classList.add("hidden"); $("deals").classList.add("hidden"); $("views").classList.add("hidden"); $("signout").classList.add("hidden"); $("who").textContent = ""; }
+function showAuth() { $("auth").classList.remove("hidden"); $("app").classList.add("hidden"); $("pipe").classList.add("hidden"); $("deals").classList.add("hidden"); $("svc").classList.add("hidden"); $("views").classList.add("hidden"); $("signout").classList.add("hidden"); $("who").textContent = ""; }
 let shownFor = null;
 async function showApp(user) {
   if (shownFor === user.id) return;          // sign-in fires more than one auth event; build the screen once
@@ -545,13 +558,15 @@ const ACTIVE = ["new", "researching", "contacted", "negotiating", "under_contrac
 let pStage = "active";
 function setView(v) {
   $("app").classList.toggle("hidden", v !== "leads"); $("pipe").classList.toggle("hidden", v !== "pipe");
-  $("deals").classList.toggle("hidden", v !== "deals");
+  $("deals").classList.toggle("hidden", v !== "deals"); $("svc").classList.toggle("hidden", v !== "svc");
+  $("vSvc").setAttribute("aria-pressed", String(v === "svc")); if (v === "svc") loadServices();
   $("vLeads").setAttribute("aria-pressed", String(v === "leads")); $("vPipe").setAttribute("aria-pressed", String(v === "pipe"));
   $("vDeals").setAttribute("aria-pressed", String(v === "deals"));
   if (v === "pipe") loadPipeline();
   if (v === "deals") loadVault();
 }
 $("vDeals").onclick = () => setView("deals");
+$("vSvc").onclick = () => setView("svc");
 $("dStatus").onchange = () => loadVault();
 $("vLeads").onclick = () => setView("leads");
 $("vPipe").onclick = () => setView("pipe");
@@ -686,6 +701,7 @@ async function renderDealPanel(leadId, propertyId, dp, pp) {
   const { data, error } = await sb.rpc("deal_for_lead", { p_lead: leadId });
   if (error) { dp.append(el("p", { class: "msg err", text: error.message })); return; }
   const o = data.offer || {};
+  renderAiSection(leadId, dp);
   // value & rent (RentCast) — as-is value with comps; you judge the ARV
   dp.append(el("h3", { text: "Value & rent" }));
   const vbox = el("div");
@@ -849,6 +865,79 @@ async function loadVault() {
     tr.onkeydown = (e) => { if (e.key === "Enter") openDetail(c.property_id); };
     tb.append(tr);
   }
+}
+
+
+/* ---------- à la carte services + AI deal analysis ---------- */
+let svcCache = null;
+async function servicePrices() {
+  if (!svcCache) { const { data } = await sb.rpc("my_services"); svcCache = Object.fromEntries((data || []).map((x) => [x.key, x])); }
+  return svcCache;
+}
+const SVC_NAMES = { ai_analysis: "AI deal analysis", skiptrace: "Skip trace", valuation: "Value & rent" };
+async function loadServices() {
+  svcCache = null;
+  const svc = await servicePrices();
+  const rows = $("svcRows"); rows.textContent = "";
+  const list = Object.values(svc);
+  $("svcPlan").textContent = list.length ? (list[0].member ? "Plan: Member" : "Plan: Pay as you go") : "";
+  for (const x of list) rows.append(el("tr", { style: "cursor:default" }, el("td", {}, el("b", { text: x.name })), el("td", { class: "sub", text: x.description }),
+    el("td", { class: "num", text: "$" + Number(x.my_price).toFixed(2) }), el("td", { class: "num", text: "$" + Number(x.price_member).toFixed(2) }),
+    el("td", { class: "num", text: "$" + Number(x.price_nonmember).toFixed(2) })));
+  if (!list.length) rows.append(el("tr", {}, el("td", { colspan: "5", class: "sub", text: "Add a lead to your pipeline first to set up your account." })));
+  const { data: use } = await sb.rpc("my_usage");
+  const ur = $("useRows"); ur.textContent = ""; let total = 0;
+  for (const u of use || []) { total += Number(u.charged); ur.append(el("tr", { style: "cursor:default" }, el("td", { text: SVC_NAMES[u.feature] || u.feature }),
+    el("td", { class: "num", text: String(u.uses) }), el("td", { class: "num", text: "$" + Number(u.charged).toFixed(2) }))); }
+  ur.append(el("tr", { style: "cursor:default" }, el("td", {}, el("b", { text: "Total" })), el("td"), el("td", { class: "num" }, el("b", { text: "$" + total.toFixed(2) }))));
+}
+const VERDICT = { pursue: "Pursue", maybe: "Maybe", pass: "Pass" };
+function renderAnalysis(box, a, at) {
+  box.textContent = "";
+  if (!a) return;
+  const r = a;
+  const rng = (o) => o && (o.low != null || o.high != null) ? money(o.low) + " to " + money(o.high) : "Not enough data";
+  box.append(el("div", {}, el("span", { class: "badge" + (r.verdict === "pursue" ? " signed" : r.verdict === "pass" ? " warn" : ""), text: VERDICT[r.verdict] || r.verdict || "" }), " ",
+    el("b", { text: r.headline || "" })));
+  if (at) box.append(el("div", { class: "sub", text: "Analyzed " + when(at) }));
+  const dl = el("dl", { class: "event", style: "display:grid;grid-template-columns:auto 1fr;gap:4px 12px;border:0;padding:8px 0" });
+  const row = (k, v) => { if (v) dl.append(el("dt", { class: "sub", text: k }), el("dd", { style: "margin:0", text: v })); };
+  row("Seller motivation", r.motivation);
+  if (r.arv) row("ARV", rng(r.arv) + (r.arv.basis ? ". " + r.arv.basis : ""));
+  if (r.repairs) row("Repairs", rng(r.repairs) + (r.repairs.basis ? ". " + r.repairs.basis : ""));
+  if (r.offer) row("Offer", (r.offer.open != null ? "Open at " + money(r.offer.open) : "") + (r.offer.max != null ? ", max " + money(r.offer.max) : "") + (r.offer.basis ? ". " + r.offer.basis : ""));
+  row("Exit plan", r.exit); row("Timing", r.timing);
+  box.append(dl);
+  const list = (title, items) => { if (items && items.length) { box.append(el("div", { class: "sub", style: "margin-top:6px;font-weight:600", text: title }));
+    const ul = el("ul", { style: "margin:4px 0 8px 18px;padding:0;font-size:14px" }); for (const i of items) ul.append(el("li", { text: i })); box.append(ul); } };
+  list("Risks", r.risks); list("Next steps", r.next_steps); list("Questions to ask the seller", r.seller_questions); list("Missing information", r.missing_info);
+  if (r.raw) box.append(el("p", { class: "sub", text: r.raw }));
+  if (r.arv && r.arv.high != null) {
+    const use = el("button", { class: "ghost small", type: "button", text: "Use these numbers in my offer" });
+    use.onclick = () => { const mid = (o) => o.low != null && o.high != null ? Math.round((Number(o.low) + Number(o.high)) / 2) : (o.high ?? o.low);
+      if ($("oArv")) { $("oArv").value = mid(r.arv); if (r.repairs) $("oRep").value = mid(r.repairs); $("oArv").dispatchEvent(new Event("input", { bubbles: true })); $("oArv").scrollIntoView({ block: "center" }); } };
+    box.append(use);
+  }
+  box.append(el("p", { class: "note", text: "AI analysis is decision support from the data BAP has, not legal or financial advice. Verify before you offer." }));
+}
+async function renderAiSection(leadId, dp) {
+  dp.append(el("h3", { text: "AI deal analysis" }));
+  const box = el("div"); const msg = el("span", { class: "sub", role: "status" });
+  const btn = el("button", { class: "primary small", type: "button", text: "Run AI analysis" });
+  dp.append(el("div", { class: "row2" }, btn, msg), box);
+  const svc = await servicePrices(); const price = svc.ai_analysis ? Number(svc.ai_analysis.my_price) : null;
+  if (price != null) btn.textContent = "Run AI analysis ($" + price.toFixed(2) + ")";
+  const { data: last } = await sb.from("ai_analyses").select("result, created_at").eq("lead_id", leadId).order("created_at", { ascending: false }).limit(1);
+  if (last && last.length) { renderAnalysis(box, last[0].result, last[0].created_at); btn.textContent = btn.textContent.replace("Run", "Run new"); btn.className = "ghost small"; }
+  btn.onclick = async () => {
+    if (price != null && !confirm("AI deal analysis is a paid service: $" + price.toFixed(2) + " will be added to your BAP account. Run it?")) return;
+    btn.disabled = true; msg.textContent = "Claude is reviewing this deal (about 20 seconds)…";
+    const r = await sb.functions.invoke("ai-analysis", { body: { lead_id: leadId } });
+    btn.disabled = false;
+    if (r.error) { let m = r.error.message; try { m = (await r.error.context.json()).error || m; } catch (e) { /* generic */ } msg.textContent = m; return; }
+    msg.textContent = r.data.price != null ? "Charged $" + Number(r.data.price).toFixed(2) + "." : "";
+    renderAnalysis(box, r.data.result, r.data.at);
+  };
 }
 
 /* ---------- saved lists ---------- */
