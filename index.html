@@ -156,7 +156,7 @@ tbody tr:last-child td { border-bottom: 0; }
 
 <section class="auth hidden" id="auth">
   <h1 id="authTitle">Sign in to your leads</h1>
-  <p id="authBlurb">Foreclosure notices, unpaid taxes and code complaints from county records, scored and ready to work.</p>
+  <p id="authBlurb">Foreclosure notices, unpaid taxes and code violations from county and city records, scored and ready to work.</p>
   <form id="authForm">
     <div class="field"><label for="email">Email</label><input id="email" type="email" autocomplete="email" required></div>
     <div class="field"><label for="password">Password</label><input id="password" type="password" autocomplete="current-password" minlength="8" required></div>
@@ -239,7 +239,7 @@ const PAGE = 100;
 
 const KINDS = {
   pre_foreclosure: "Pre-foreclosure", foreclosure_sale: "Foreclosure sale", tax_delinquent: "Tax delinquent",
-  tax_sale: "Tax sale", code_violation: "Code complaints", probate: "Probate", vacant: "Vacant",
+  tax_sale: "Tax sale", code_violation: "Code violations", probate: "Probate", vacant: "Vacant",
   other: "Unregistered rental"
 };
 const FLAGS = { absentee: "Absentee owner", out_of_state: "Out-of-state owner", senior: "Senior (65+)",
