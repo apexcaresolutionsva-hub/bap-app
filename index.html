@@ -493,7 +493,7 @@ async function openDetail(id) {
   box.textContent = "";
   if (error || !data) { box.append(el("p", { class: "msg err", text: error ? error.message : "Lead not found." })); return; }
   const p = data.property;
-  window.__ownerName = title(p.owner_name);
+  window.__ownerName = title(p.owner_name); window.__prop = p;
   box.append(el("h2", { text: p.address_line || "Address unknown" }),
     el("div", { class: "sub", text: [[p.city, "TX", p.zip].filter(Boolean).join(" "), p.county + " County"].join(", ") }));
   const facts = el("div", { class: "facts" });
@@ -760,33 +760,132 @@ async function renderDealPanel(leadId, propertyId, dp, pp) {
   dp.append(el("p", { class: "note", text: "Texas law requires a written notice to the seller and to any end buyer that you are selling only " +
     "your interest in the purchase contract and do not hold title. BAP won't let a Texas contract be marked sent or signed until that's recorded." }));
   for (const c of data.contracts || []) dp.append(contractRow(c, leadId, propertyId, dp, pp, data.org));
-  // new contract form
-  const kind = el("select", { id: "cKind" }, el("option", { value: "purchase", text: "Purchase (you buy from the seller)" }),
-    el("option", { value: "assignment", text: "Assignment (you assign to an end buyer)" }));
+  // new contract form: pick the scenario and the state; the state's wholesaling rule shows underneath
+  const SCEN = [["wholesale_purchase", "purchase", "Wholesale purchase (assignable): you buy from the seller"],
+    ["cash_purchase", "purchase", "Standard cash purchase: you close on it yourself"],
+    ["assignment", "assignment", "Assignment of contract: you assign to an end buyer"],
+    ["option", "option", "Option to purchase"],
+    ["jv", "jv", "Joint venture (co-wholesale) with another wholesaler"]];
+  const kind = el("select", { id: "cKind" }); for (const [v, , t] of SCEN) kind.append(el("option", { value: v, text: t }));
+  const st = el("select", { id: "cState" });
+  const rule = el("div", { class: "note", style: "margin:2px 0 8px" });
   const party = el("input", { id: "cParty", value: window.__ownerName || "" });
   const price = el("input", { id: "cPrice", inputmode: "decimal", value: o.mao ? Math.round(o.mao) : "" });
   const emd = el("input", { id: "cEmd", inputmode: "decimal", value: 500 });
   const close = el("input", { id: "cClose", type: "date" });
   const fee = el("input", { id: "cFee", inputmode: "decimal", value: o.fee ?? "" });
-  const feeLab = el("label", { class: "hidden" }, "Your assignment fee", fee);
+  const titleCo = el("input", { id: "cTitle", placeholder: "e.g. Republic Title, Dallas" });
+  const insp = el("input", { id: "cInsp", inputmode: "numeric", value: 10 });
+  const optFee = el("input", { id: "cOptFee", inputmode: "decimal", value: 100 });
+  const optDays = el("input", { id: "cOptDays", inputmode: "numeric", value: 60 });
+  const split = el("input", { id: "cSplit", inputmode: "numeric", value: 50 });
+  const feeLab = el("label", {}, "Your assignment fee", fee), optLab = el("label", {}, "Option fee", optFee),
+    optDaysLab = el("label", {}, "Option term (days)", optDays), splitLab = el("label", {}, "Your share of the fee (%)", split),
+    inspLab = el("label", {}, "Inspection period (days)", insp);
   const partyLab = el("label", {}, "Seller name", party);
-  kind.onchange = () => { const a = kind.value === "assignment"; feeLab.classList.toggle("hidden", !a);
-    partyLab.firstChild.textContent = a ? "End buyer name" : "Seller name"; if (a) party.value = ""; };
+  const sync = () => {
+    const sc = kind.value, toBuyer = sc === "assignment" || sc === "jv";
+    partyLab.firstChild.textContent = sc === "jv" ? "Partner wholesaler" : toBuyer ? "End buyer name" : "Seller name";
+    if (toBuyer && party.value === (window.__ownerName || "")) party.value = "";
+    if (!toBuyer && !party.value) party.value = window.__ownerName || "";
+    feeLab.classList.toggle("hidden", !toBuyer); splitLab.classList.toggle("hidden", sc !== "jv");
+    optLab.classList.toggle("hidden", sc !== "option"); optDaysLab.classList.toggle("hidden", sc !== "option");
+    inspLab.classList.toggle("hidden", !(sc === "wholesale_purchase" || sc === "cash_purchase"));
+  };
+  kind.onchange = sync; sync();
+  const showRule = async () => {
+    const { data } = await sb.rpc("contract_library", { p_state: st.value });
+    const s0 = (data || {}).state || {};
+    const msgs = { license: "Warning: " + (s0.name || st.value) + " requires a real estate license to wholesale. Talk to a local attorney before using these templates there.",
+      registration: (s0.name || st.value) + " requires wholesalers to register. Register before marketing contracts there.",
+      disclosure: (s0.name || st.value) + " requires a written wholesaler disclosure; BAP adds the disclosure addendum automatically.",
+      none_found: "No specific wholesaling statute found for " + (s0.name || st.value) + ". General real estate law still applies." };
+    rule.textContent = (msgs[s0.rule] || "") + (s0.note ? " " + s0.note : "");
+    rule.style.color = s0.rule === "license" ? "var(--sale)" : "";
+  };
+  st.onchange = showRule;
+  sb.rpc("list_states").then(({ data }) => {
+    for (const x of data || []) st.append(el("option", { value: x.code, text: x.name }));
+    st.value = (window.__prop && window.__prop.state) || "TX"; showRule();
+  });
   const make = el("button", { class: "primary small", type: "button", text: "Create contract record" });
   const cmsg = el("span", { class: "sub", role: "status" });
-  dp.append(el("div", { class: "grid4", style: "margin-top:10px" }, el("label", {}, "Type", kind), partyLab,
-    el("label", {}, "Price", price), el("label", {}, "Earnest money", emd), el("label", {}, "Closing date", close), feeLab),
+  dp.append(el("div", { class: "grid4", style: "margin-top:10px" }, el("label", { style: "grid-column:1/-1" }, "Contract type", kind),
+    el("label", {}, "State", st), partyLab), rule,
+    el("div", { class: "grid4" }, el("label", {}, "Price", price), el("label", {}, "Earnest money", emd), el("label", {}, "Closing date", close),
+      el("label", {}, "Title company", titleCo), inspLab, feeLab, optLab, optDaysLab, splitLab),
     el("div", { class: "row2" }, make, cmsg));
   make.onclick = async () => {
     if (!num(price.value)) { cmsg.textContent = "Enter a price."; return; }
-    const role = kind.value === "purchase" ? "seller" : "end_buyer";
-    const r = await sb.rpc("create_contract", { p_lead: leadId, p_kind: kind.value, p_price: num(price.value),
-      p_earnest: num(emd.value) || null, p_closing: close.value || null, p_fee: kind.value === "assignment" ? num(fee.value) || null : null,
-      p_parties: party.value.trim() ? [{ role, name: party.value.trim() }] : [] });
+    const sc = kind.value, k = SCEN.find((x) => x[0] === sc)[1];
+    const role = sc === "jv" ? "partner" : (sc === "assignment" ? "end_buyer" : "seller");
+    const r = await sb.rpc("create_contract", { p_lead: leadId, p_kind: k, p_price: num(price.value),
+      p_earnest: num(emd.value) || null, p_closing: close.value || null,
+      p_fee: (sc === "assignment" || sc === "jv") ? num(fee.value) || null : null,
+      p_parties: party.value.trim() ? [{ role, name: party.value.trim() }] : [],
+      p_values: { scenario: sc, state: st.value, title_company: titleCo.value.trim(), inspection_days: num(insp.value) || null,
+        option_fee: sc === "option" ? num(optFee.value) : null, option_term_days: sc === "option" ? num(optDays.value) : null,
+        split_contract_holder: sc === "jv" ? num(split.value) : null } });
     if (r.error) { cmsg.textContent = "Couldn't create: " + r.error.message; return; }
     renderPipePanel(propertyId, pp);
   };
 }
+
+// fill a template's {{fields}} from the deal; blanks become signature lines to fill by hand
+async function generateDocs(c, leadId, msg) {
+  const v = c.values || {}, p = window.__prop || {};
+  const sc = v.scenario || (c.kind === "assignment" ? "assignment" : c.kind === "option" ? "option" : c.kind === "jv" ? "jv" : "wholesale_purchase");
+  const stateCode = v.state || p.state || "TX";
+  const { data: lib, error } = await sb.rpc("contract_library", { p_state: stateCode });
+  if (error) { msg.textContent = error.message; return; }
+  const main = (lib.templates || []).find((t) => t.scenario === sc);
+  if (!main) { msg.textContent = "No template for this contract type yet."; return; }
+  const addenda = (lib.templates || []).filter((t) => t.addendum && t.applies_to.split(",").includes(c.kind));
+  let buyerName = localStorage.getItem("bapBuyerName") || "";
+  buyerName = prompt("Your buying name as it should appear on the contract (company or person):", buyerName) || "";
+  if (!buyerName) return;
+  try { localStorage.setItem("bapBuyerName", buyerName); } catch (e) { /* storage blocked */ }
+  const svc = await servicePrices(); const price = svc.contract_template ? Number(svc.contract_template.my_price) : 0;
+  if (!confirm("Generate \"" + main.name + "\"" + (addenda.length ? " plus " + addenda.length + " required addendum (free)" : "") +
+    "? Contract templates are $" + price.toFixed(2) + " per contract; regenerating the same one later is free.")) return;
+  msg.textContent = "Preparing documents…";
+  const docs = [];
+  let charged = 0;
+  for (const t of [main, ...addenda]) {
+    const r = await sb.rpc("use_contract_template", { p_contract: c.id, p_template: t.id });
+    if (r.error) { msg.textContent = r.error.message; return; }
+    charged += Number(r.data.charged || 0); docs.push(r.data);
+  }
+  const party = (role) => ((c.parties || []).find((x) => x.role === role) || {}).name;
+  const fmt = (n) => n == null || n === "" ? "" : Number(n).toLocaleString("en-US");
+  const seller = party("seller") || window.__ownerName || "";
+  const titlePaidBySeller = (stateCode === "TX") ? "the owner's title insurance policy" : "the owner's title policy if customary in the county";
+  const F = {
+    effective_date: new Date().toLocaleDateString("en-US"), seller_names: seller, buyer_name: buyerName,
+    assignee_name: party("end_buyer") || party("partner") || "", property_address: [p.address_line, p.city, (p.state || stateCode), p.zip].filter(Boolean).join(", "),
+    county: p.county || "", state_name: (lib.state || {}).name || stateCode, apn: p.apn || "", legal_description: v.legal_description || "",
+    price: fmt(c.price), earnest_money: fmt(c.earnest), title_company: v.title_company || "", closing_date: c.closing || "",
+    inspection_days: v.inspection_days || 10, title_policy_paid_by_seller: titlePaidBySeller, title_policy_paid_by_buyer: "any lender's title policy",
+    assignment_fee: fmt(c.fee), assignee_deposit: fmt(c.fee ? Math.max(500, Math.round(Number(c.fee) * 0.1)) : ""), original_contract_date: "",
+    option_fee: fmt(v.option_fee), option_term_days: v.option_term_days || "", option_fee_credit: "is",
+    split_contract_holder: v.split_contract_holder ?? 50, split_partner: v.split_contract_holder != null ? 100 - Number(v.split_contract_holder) : 50,
+    state_rule_note: ((lib.state || {}).note || "See your attorney for the state's exact wording."),
+  };
+  const esc = (x) => String(x).replace(/[&<>]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[ch]);
+  const fill = (body) => esc(body).replace(/\{\{(\w+)\}\}/g, (m0, k) => (F[k] !== undefined && F[k] !== "" && F[k] !== null) ? esc(F[k]) : "______________");
+  const html = "<!doctype html><html><head><meta charset='utf-8'><title>" + esc(main.name) + "</title><style>" +
+    "body{font:12pt/1.5 Georgia,serif;max-width:7.5in;margin:.6in auto;color:#111}pre{white-space:pre-wrap;font:inherit}" +
+    ".doc{page-break-after:always}.bar{font:11pt system-ui;background:#fff4dd;padding:8px 12px;margin-bottom:16px}" +
+    "@media print{.bar{display:none}}</style></head><body><div class='bar'>Draft documents from BAP. Review every blank and term, " +
+    "and have an attorney review the templates before use. <button onclick='print()'>Print or save as PDF</button></div>" +
+    docs.map((d) => "<div class='doc'><pre>" + fill(d.body) + "</pre></div>").join("") + "</body></html>";
+  const w = window.open("", "_blank");
+  if (!w) { msg.textContent = "Your browser blocked the new window. Allow pop-ups for this site and try again."; return; }
+  w.document.write(html); w.document.close();
+  msg.textContent = charged ? "Charged $" + charged.toFixed(2) + ". Print or save as PDF, sign, then upload the signed copy here." :
+    "Generated (no charge). Print or save as PDF, sign, then upload the signed copy here.";
+}
+
 function contractRow(c, leadId, propertyId, dp, pp, org) {
   const v = c.values || {};
   const who = c.kind === "assignment" ? "buyer" : "seller";
@@ -837,6 +936,8 @@ function contractRow(c, leadId, propertyId, dp, pp, org) {
     };
     files.append(b, input);
   };
+  if (c.status !== "voided") { const g = el("button", { class: "primary small", type: "button", text: "Generate document" });
+    g.onclick = () => generateDocs(c, leadId, msg); files.append(g); }
   if (c.draft_path) openBtn("Open draft", c.draft_path);
   if (c.signed_path) openBtn("Open signed copy", c.signed_path);
   if (c.status !== "voided") upBtn(c.draft_path ? "Replace draft" : "Upload draft", "draft");
@@ -874,7 +975,7 @@ async function servicePrices() {
   if (!svcCache) { const { data } = await sb.rpc("my_services"); svcCache = Object.fromEntries((data || []).map((x) => [x.key, x])); }
   return svcCache;
 }
-const SVC_NAMES = { ai_analysis: "AI deal analysis", skiptrace: "Skip trace", valuation: "Value & rent" };
+const SVC_NAMES = { ai_analysis: "AI deal analysis", skiptrace: "Skip trace", valuation: "Value & rent", contract_template: "Contract template" };
 async function loadServices() {
   svcCache = null;
   const svc = await servicePrices();
