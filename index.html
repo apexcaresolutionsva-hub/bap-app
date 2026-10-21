@@ -16,6 +16,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <style>
 :root {
   color-scheme: light;
@@ -120,6 +122,30 @@ input[type=range] { width: 100%; accent-color: var(--brand); }
 .ghost { background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 7px 12px; cursor: pointer; }
 
 main.results { padding: 18px 22px; min-width: 0; }
+main.results { position: relative; padding: 0; }
+.mapwrap { position: relative; height: calc(100vh - 52px); min-height: 420px; }
+#map { position: absolute; inset: 0; }
+.map-top { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; gap: 8px; z-index: 3; pointer-events: none; }
+.map-top > * { pointer-events: auto; }
+.mapsearch { flex: 1; max-width: 420px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--bg); box-shadow: 0 2px 8px rgba(10, 20, 35, .18); font-size: 15px; }
+.mapbtn { padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+  box-shadow: 0 2px 8px rgba(10, 20, 35, .18); font-weight: 600; cursor: pointer; }
+.map-bottom { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 3; display: flex; gap: 10px;
+  align-items: center; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 6px 6px 6px 14px;
+  box-shadow: 0 2px 10px rgba(10, 20, 35, .22); white-space: nowrap; font-size: 14px; }
+.map-bottom button { border-radius: 999px; }
+.map-legend { position: absolute; top: 62px; left: 12px; z-index: 2; display: flex; flex-wrap: wrap; gap: 6px; max-width: 70%; }
+.map-legend span { background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px 3px 7px; font-size: 12px;
+  display: inline-flex; align-items: center; gap: 5px; box-shadow: 0 1px 4px rgba(10, 20, 35, .12); }
+.map-legend i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.map-note { position: absolute; left: 12px; bottom: 70px; z-index: 2; max-width: 360px; background: var(--bg); border: 1px solid var(--line);
+  border-radius: 10px; padding: 8px 10px; font-size: 12px; color: var(--muted); box-shadow: 0 1px 4px rgba(10, 20, 35, .12); }
+.listpanel { position: absolute; top: 0; right: 0; bottom: 0; width: min(760px, 62%); z-index: 4; background: var(--bg);
+  border-left: 1px solid var(--line); box-shadow: -6px 0 18px rgba(10, 20, 35, .15); overflow: auto; padding: 14px 16px; }
+.maplibregl-popup-content { padding: 12px 14px; border-radius: 12px; min-width: 230px; color: #16202b; }
+.mapcard .addr { font-weight: 700; }
+.mapcard .row2 { margin-top: 8px; }
 .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
 .count { font-size: 20px; font-weight: 700; }
 .count small { font-size: 14px; font-weight: 400; color: var(--muted); margin-left: 6px; }
@@ -189,10 +215,10 @@ tbody tr:last-child td { border-bottom: 0; }
   .app { grid-template-columns: minmax(0, 1fr); }
   body.signed-in { padding-bottom: calc(66px + env(safe-area-inset-bottom, 0px)); }
   header.bar { gap: 10px; }
-  .bar .views { position: fixed; left: 0; right: 0; bottom: 0; z-index: 12; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+  .bar .views { position: fixed; left: 0; right: 0; bottom: 0; z-index: 12; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 4px; background: var(--brand); padding: 6px 6px calc(env(safe-area-inset-bottom, 0px) + 6px);
     border-top: 1px solid rgba(255, 255, 255, .18); box-shadow: 0 -4px 14px rgba(10, 20, 35, .15); }
-  .bar .views button { border: 0; border-radius: 8px; padding: 9px 1px; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar .views button { border: 0; border-radius: 8px; padding: 9px 0; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .bar .views button[aria-pressed="true"] { background: rgba(255, 255, 255, .18); }
   .toolbar { gap: 8px; }
   .toolbar .count { width: 100%; order: -1; }
@@ -210,6 +236,10 @@ tbody tr:last-child td { border-bottom: 0; }
   .pager { justify-content: space-between; }
   .grid4 { grid-template-columns: minmax(0, 1fr); }
   .drawer { padding-left: 16px; padding-right: 16px; }
+  .mapwrap { height: calc(100vh - 52px - 66px - env(safe-area-inset-bottom, 0px)); }
+  .listpanel { top: auto; left: 0; width: 100%; height: 72%; border-left: 0; border-top: 1px solid var(--line); border-radius: 16px 16px 0 0; }
+  .map-legend { display: none; }
+  .map-bottom { bottom: 12px; }
 }
 </style>
 </head>
@@ -221,6 +251,7 @@ tbody tr:last-child td { border-bottom: 0; }
     <button type="button" id="vPipe" aria-pressed="false">Pipeline</button>
     <button type="button" id="vDeals" aria-pressed="false">Contracts</button>
     <button type="button" id="vLend" aria-pressed="false">Lenders</button>
+    <button type="button" id="vBuy" aria-pressed="false">Buyers</button>
     <button type="button" id="vSvc" aria-pressed="false">Services</button>
   </nav>
   <span class="spacer"></span>
@@ -272,7 +303,22 @@ tbody tr:last-child td { border-bottom: 0; }
   </aside>
 
   <main class="results">
+    <div class="mapwrap" id="mapWrap">
+      <div id="map" role="region" aria-label="Map of leads"></div>
+      <div class="map-top">
+        <button class="mapbtn filters-toggle" id="mapFilters" type="button">Filters</button>
+        <input type="search" id="mapQ" class="mapsearch" placeholder="Address, street, ZIP or owner" aria-label="Search the map">
+      </div>
+      <div class="map-legend" id="mapLegend" aria-label="Lead type colors"></div>
+      <div class="map-bottom">
+        <span id="mapCount" role="status">Loading map…</span>
+        <button class="primary small" id="listBtn" type="button" disabled>Show list</button>
+      </div>
+      <div class="map-note hidden" id="mapNote"></div>
+    </div>
+    <section class="listpanel hidden" id="listPanel" aria-label="Lead list">
     <div class="toolbar">
+      <button class="ghost" id="closeList" type="button" aria-label="Close list">&#x2715; Map</button>
       <button class="ghost filters-toggle" id="openFilters" type="button">Filters</button>
       <span class="count" id="count">0 leads</span>
       <span class="spacer"></span>
@@ -298,6 +344,7 @@ tbody tr:last-child td { border-bottom: 0; }
       <span class="sub" id="pageInfo"></span>
       <button class="ghost" id="next" type="button">Next</button>
     </div>
+    </section>
   </main>
 </div>
 
@@ -349,6 +396,21 @@ tbody tr:last-child td { border-bottom: 0; }
   </details>
   <div class="panel"><b>Lender directory</b><p class="sub" style="margin:4px 0 0">Coming next: hard-money, DSCR and transactional lenders who opt in to receive BAP deal packets, with one-tap sending once your business email is set up. Until then, print the lender packet from any deal and email it yourself.</p></div>
 </section>
+
+<section class="pipe hidden" id="buy" aria-label="Buyers">
+  <div class="toolbar"><span class="count" id="bCount">Cash buyers</span><span class="spacer"></span><button class="primary small" id="bAdd" type="button">Add buyer</button></div>
+  <p class="sub" style="margin-top:-6px">Your private cash-buyer list. Give each buyer a buy box (areas, price range, rehab limit) and BAP shows which buyers fit every deal you put under contract.</p>
+  <details class="panel" id="bPanel"><summary style="cursor:pointer;font-weight:700" id="bFormTitle">Add a cash buyer</summary>
+    <div class="grid4" id="bForm" style="margin-top:8px"></div>
+    <div class="row2" style="margin-top:8px"><button class="primary small" id="bSave" type="button">Save buyer</button>
+      <button class="ghost small hidden" id="bDelete" type="button">Remove</button><span class="sub" id="bMsg" role="status"></span></div>
+  </details>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Buyer</th><th>Buys in</th><th>Price range</th><th>Contact</th><th>Strategy</th></tr></thead>
+    <tbody id="bRows"></tbody></table>
+    <div class="empty hidden" id="bEmpty">No buyers yet. Tip: the best cash buyers are the ones already buying near your deals. Look up recent cash sales in your area and add those buyers here.</div></div>
+</section>
+<section class="hidden" id="dealPublic" style="max-width:760px;margin:24px auto;padding:0 16px" aria-label="Deal"></section>
 
 <section class="pipe hidden" id="svc" aria-label="Services">
   <div class="toolbar"><span class="count">Services</span><span class="spacer"></span><span class="sub" id="svcPlan"></span></div>
@@ -411,14 +473,14 @@ let state = { page: 0, total: 0, rows: [] };
 let signUp = false;
 
 /* ---------- auth ---------- */
-function showAuth() { $("auth").classList.remove("hidden"); $("app").classList.add("hidden"); $("pipe").classList.add("hidden"); $("deals").classList.add("hidden"); $("svc").classList.add("hidden"); $("views").classList.add("hidden"); $("signout").classList.add("hidden"); $("who").textContent = ""; }
+function showAuth() { $("auth").classList.remove("hidden"); $("app").classList.add("hidden"); $("pipe").classList.add("hidden"); $("deals").classList.add("hidden"); $("svc").classList.add("hidden"); $("lend").classList.add("hidden"); $("buy").classList.add("hidden"); $("views").classList.add("hidden"); $("signout").classList.add("hidden"); $("who").textContent = ""; }
 let shownFor = null;
 async function showApp(user) {
   if (shownFor === user.id) return;          // sign-in fires more than one auth event; build the screen once
   shownFor = user.id;
   $("auth").classList.add("hidden"); $("app").classList.remove("hidden");
   $("signout").classList.remove("hidden"); $("who").textContent = user.email; $("views").classList.remove("hidden");
-  await loadCounties(); await buildStaticFilters(); await loadSaved(); await search();
+  await loadCounties(); await buildStaticFilters(); await loadSaved(); updateFacets(filters()); initMap();
 }
 $("authSwap").onclick = () => {
   signUp = !signUp;
@@ -440,7 +502,12 @@ $("authForm").onsubmit = async (e) => {
   $("authMsg").textContent = "";
 };
 $("signout").onclick = () => { shownFor = null; sb.auth.signOut(); };
-sb.auth.onAuthStateChange((_evt, session) => { session ? showApp(session.user) : showAuth(); });
+sb.auth.onAuthStateChange((_evt, session) => {
+  const deal = (location.hash.match(/^#deal\/([a-z0-9]+)/) || [])[1];
+  if (deal) { renderPublicDeal(deal); return; }            // public deal pages need no sign-in
+  session ? showApp(session.user) : showAuth();
+});
+window.addEventListener("hashchange", () => { if (/^#deal\//.test(location.hash)) location.reload(); });
 
 /* ---------- filters ---------- */
 async function loadCounties() {
@@ -491,17 +558,276 @@ function applyFilters(f) {
   $("fQ").value = f.q || ""; $("sort").value = f.sort || "score";
 }
 let timer;
-const refresh = () => { clearTimeout(timer); timer = setTimeout(() => { state.page = 0; search(); }, 250); };
+const refresh = () => { clearTimeout(timer); timer = setTimeout(() => { state.page = 0; refreshMap(); updateFacets(filters()); if (listOpen) search(); }, 250); };
 document.addEventListener("change", (e) => { if (e.target.closest("#filters") || e.target.id === "sort") refresh(); });
 $("fQ").addEventListener("input", refresh);
 $("fScore").addEventListener("input", () => { $("fScoreVal").textContent = $("fScore").value; refresh(); });
+
+/* ---------- Tab 4: buyers + selling the contract ---------- */
+const BUYER_FIELDS = [["name", "Name *"], ["company", "Company"], ["phone", "Phone"], ["email", "Email"],
+  ["counties", "Counties (comma separated)"], ["cities", "Cities"], ["zips", "ZIP codes"], ["price_min", "Price from ($)"],
+  ["price_max", "Price to ($)"], ["max_rehab", "Max rehab ($)"], ["min_beds", "Min beds"], ["strategies", "Strategies (flip, rental, brrrr)"],
+  ["source", "Where you met them"], ["notes", "Notes"]];
+let buyerEditing = null;
+function buyerForm(b) {
+  const box = $("bForm"); box.textContent = ""; buyerEditing = b ? b.id : null;
+  const val = (k) => b ? (Array.isArray(b[k]) ? b[k].join(", ") : (b[k] ?? "")) : "";
+  for (const [k, lab] of BUYER_FIELDS) box.append(el("label", {}, lab, el("input", { id: "bf_" + k, value: val(k) })));
+  $("bFormTitle").textContent = b ? "Edit " + b.name : "Add a cash buyer";
+  $("bDelete").classList.toggle("hidden", !b);
+  $("bPanel").open = true; $("bPanel").scrollIntoView({ block: "start", behavior: "smooth" });
+}
+async function loadBuyers() {
+  const { data, error } = await sb.from("org_buyers").select("*").eq("active", true).order("created_at", { ascending: false });
+  const rows = $("bRows"); rows.textContent = "";
+  if (error) { rows.append(el("tr", {}, el("td", { colspan: "5", class: "sub", text: error.message }))); return; }
+  $("bCount").textContent = (data || []).length ? data.length + ((data.length === 1) ? " cash buyer" : " cash buyers") : "Cash buyers";
+  $("bEmpty").classList.toggle("hidden", (data || []).length > 0);
+  for (const b of data || []) {
+    const area = [b.zips.length ? "ZIP " + b.zips.join(", ") : null, b.cities.length ? b.cities.join(", ") : null,
+      b.counties.length ? b.counties.join(", ") + " County" : null].filter(Boolean).join(" · ") || "Anywhere";
+    const price = b.price_min || b.price_max ? (b.price_min ? money(b.price_min) : "Any") + " to " + (b.price_max ? money(b.price_max) : "any") : "Any price";
+    const tr = el("tr", { tabindex: "0" },
+      el("td", {}, el("b", { text: b.name }), b.company ? el("div", { class: "sub", text: b.company }) : null),
+      el("td", { text: area }), el("td", { text: price }),
+      el("td", {}, b.phone ? el("div", { text: b.phone }) : null, b.email ? el("div", { class: "sub", text: b.email }) : null),
+      el("td", { class: "sub", text: (b.strategies || []).join(", ") }));
+    tr.onclick = () => buyerForm(b);
+    rows.append(tr);
+  }
+}
+$("bAdd").onclick = () => buyerForm(null);
+$("bSave").onclick = async () => {
+  const p = { id: buyerEditing || "" };
+  for (const [k] of BUYER_FIELDS) p[k] = $("bf_" + k).value.trim();
+  for (const k of ["price_min", "price_max", "max_rehab", "min_beds"]) p[k] = p[k] ? String(num(p[k]) ?? "") : "";
+  const r = await sb.rpc("save_buyer", { p });
+  $("bMsg").textContent = r.error ? "Couldn't save: " + r.error.message : "Saved.";
+  if (!r.error) { buyerEditing = null; $("bPanel").open = false; loadBuyers(); }
+};
+$("bDelete").onclick = async () => {
+  if (!buyerEditing || !confirm("Remove this buyer from your list?")) return;
+  const r = await sb.from("org_buyers").update({ active: false }).eq("id", buyerEditing);
+  $("bMsg").textContent = r.error ? r.error.message : "Removed."; if (!r.error) { $("bPanel").open = false; loadBuyers(); }
+};
+
+// inside a lead: publish a deal page and see which of your buyers fit it
+async function renderSellSection(leadId, dp, o) {
+  dp.append(el("h3", { text: "Sell this deal", style: "margin-top:16px" }));
+  const box = el("div"); dp.append(box);
+  const [{ data: listing }, { data: deal }] = await Promise.all([sb.rpc("deal_for_listing", { p_lead: leadId }), sb.rpc("deal_for_lead", { p_lead: leadId })]);
+  const contract = ((deal && deal.contracts) || []).find((c) => c.kind === "purchase" && c.status !== "voided");
+  const fee0 = (o && o.fee) || 10000;
+  const asking0 = listing ? listing.asking_price : contract && contract.price ? Number(contract.price) + Number(fee0) : o && o.mao ? Math.round(o.mao + fee0) : "";
+  const contact0 = (listing && listing.deck_path) || localStorage.getItem("bapDealContact") || "";
+  let listingId = listing ? listing.id : null;
+  const f = (id, lab, v) => el("label", {}, lab, el("input", { id, value: v ?? "", inputmode: id === "sContact" || id === "sSummary" ? "text" : "decimal" }));
+  box.append(el("div", { class: "grid4" }, f("sAsk", "Asking price to buyers", asking0 ? Math.round(asking0) : ""), f("sArv", "ARV", (listing && listing.arv) || (o && o.arv) || ""),
+    f("sRehab", "Rehab estimate", (listing && listing.rehab_est) || (o && o.repairs) || ""), f("sContact", "Contact on the page", contact0)),
+    el("label", {}, "What buyers should know", el("textarea", { id: "sSummary", rows: "3", text: (listing && listing.summary) || "" })));
+  const msg = el("span", { class: "sub", role: "status" });
+  const pub = el("button", { class: "primary small", type: "button", text: listing ? "Update deal page" : "Publish deal page" });
+  const linkBox = el("div", { class: "note", style: "margin-top:8px" });
+  const showLink = (slug, status) => {
+    linkBox.textContent = "";
+    const url = location.origin + location.pathname + "#deal/" + slug;
+    const copy = el("button", { class: "ghost small", type: "button", text: "Copy link" });
+    copy.onclick = async () => { try { await navigator.clipboard.writeText(url); copy.textContent = "Copied"; } catch (e) { prompt("Copy this link:", url); } };
+    const st = el("select", {}); for (const s of ["live", "pending", "sold", "withdrawn"]) { const op = el("option", { value: s, text: s[0].toUpperCase() + s.slice(1) }); if (s === status) op.selected = true; st.append(op); }
+    st.onchange = async () => { const r = await sb.rpc("set_deal_status", { p_listing: listingId, p_status: st.value }); msg.textContent = r.error ? r.error.message : "Status: " + st.value; };
+    linkBox.append(el("div", {}, el("b", { text: "Deal page: " }), el("a", { href: url, target: "_blank", rel: "noopener", text: url })), el("div", { class: "row2" }, copy, st));
+  };
+  if (listing) showLink(listing.slug, listing.status);
+  pub.onclick = async () => {
+    try { localStorage.setItem("bapDealContact", $("sContact").value.trim()); } catch (e) { /* storage blocked */ }
+    const v = await valuationCompsFor();
+    const r = await sb.rpc("publish_deal", { p_lead: leadId, p: { asking_price: String(num($("sAsk").value) ?? ""), arv: String(num($("sArv").value) ?? ""),
+      rehab_est: String(num($("sRehab").value) ?? ""), summary: $("sSummary").value.trim(), contact: $("sContact").value.trim(), comps: v } });
+    if (r.error) { msg.textContent = "Couldn't publish: " + r.error.message; return; }
+    listingId = r.data.id; msg.textContent = "Published."; showLink(r.data.slug, "live"); pub.textContent = "Update deal page"; showMatches();
+  };
+  box.append(el("div", { class: "row2", style: "margin-top:8px" }, pub, msg), linkBox);
+  const mbox = el("div", { style: "margin-top:12px" }); box.append(mbox);
+  async function showMatches() {
+    mbox.textContent = "";
+    const price = num($("sAsk").value) || null, rehab = num($("sRehab").value) || null;
+    const { data, error } = await sb.rpc("match_my_buyers", { p_lead: leadId, p_price: price, p_rehab: rehab });
+    if (error) { mbox.append(el("p", { class: "sub", text: error.message })); return; }
+    mbox.append(el("div", { style: "font-weight:700;margin-bottom:6px", text: (data || []).length ? data.length + " of your buyers fit this deal" : "None of your buyers fit this deal yet" }));
+    if (!(data || []).length) { mbox.append(el("p", { class: "sub", text: "Add cash buyers with their buy box in the Buyers tab. They'll show up here when a deal fits." })); return; }
+    for (const b of data) mbox.append(el("div", { class: "note", style: "margin:4px 0" }, el("b", { text: b.name }), b.company ? " · " + b.company : "",
+      el("div", { class: "sub", text: (b.reasons || []).join(" · ") }),
+      el("div", { class: "row2" }, b.phone ? el("a", { href: "tel:" + b.phone, text: b.phone }) : null, b.email ? el("a", { href: "mailto:" + b.email, text: b.email }) : null)));
+    const emails = data.map((b) => b.email).filter(Boolean);
+    const link = $("sAsk") && linkBox.querySelector("a") ? linkBox.querySelector("a").href : "";
+    const p = window.__prop || {};
+    const body = "New deal: " + [p.address_line, p.city].filter(Boolean).join(", ") + "\nAsking " + money(num($("sAsk").value)) +
+      ($("sArv").value ? " · ARV " + money(num($("sArv").value)) : "") + ($("sRehab").value ? " · Rehab est. " + money(num($("sRehab").value)) : "") +
+      (link ? "\nDetails: " + link : "") + "\n\nI hold a contract on this property and am offering my interest in that contract; I do not own the property.";
+    const copy = el("button", { class: "ghost small", type: "button", text: "Copy message" });
+    copy.onclick = async () => { try { await navigator.clipboard.writeText(body); copy.textContent = "Copied"; } catch (e) { prompt("Copy:", body); } };
+    mbox.append(el("div", { class: "row2", style: "margin-top:8px" },
+      emails.length ? el("a", { class: "primary small", style: "text-decoration:none;padding:6px 12px;border-radius:8px",
+        href: "mailto:?bcc=" + encodeURIComponent(emails.join(",")) + "&subject=" + encodeURIComponent("New deal: " + (p.address_line || "")) + "&body=" + encodeURIComponent(body),
+        text: "Email " + emails.length + " matched buyer" + (emails.length === 1 ? "" : "s") }) : null, copy));
+  }
+  showMatches();
+}
+async function valuationCompsFor() {
+  const avm = window.__lastAvm || {};
+  return (avm.comps || []).slice(0, 8).map((c) => ({ address: c.address, price: c.price, sqft: c.sqft, miles: c.miles }));
+}
+
+// public deal page: app.buybap.com/#deal/<slug>, no sign-in
+async function renderPublicDeal(slug) {
+  for (const id of ["auth", "app", "pipe", "deals", "svc", "lend", "buy", "views"]) if ($(id)) $(id).classList.add("hidden");
+  const box = $("dealPublic"); box.classList.remove("hidden"); box.textContent = "Loading deal…";
+  const { data, error } = await sb.rpc("public_deal", { p_slug: slug });
+  box.textContent = "";
+  if (error || !data) { box.append(el("h2", { text: "This deal isn't available" }), el("p", { class: "sub", text: "It may have sold or been withdrawn." })); return; }
+  const row = (k, v) => v == null || v === "" ? null : el("tr", { style: "cursor:default" }, el("td", { class: "sub", text: k }), el("td", { class: "num", text: v }));
+  const spread = data.arv && data.asking_price ? Number(data.arv) - Number(data.asking_price) - Number(data.rehab_est || 0) : null;
+  const t = el("table", { style: "min-width:0" }, el("tbody", {}, row("Asking price", money(data.asking_price)), row("After-repair value (ARV)", money(data.arv)),
+    row("Rehab estimate", money(data.rehab_est)), row("Spread before costs", spread != null ? money(spread) : null),
+    row("Beds / baths", data.beds ? data.beds + " / " + (data.baths ?? "?") : null), row("Size", data.sqft ? Number(data.sqft).toLocaleString("en-US") + " sq ft" : null),
+    row("Year built", data.year_built)));
+  const comps = (data.comps || []).length ? el("table", { style: "min-width:0;font-size:14px" }, el("thead", {}, el("tr", {}, el("th", { text: "Recent sale" }), el("th", { class: "num", text: "Price" }), el("th", { class: "num", text: "Miles" }))),
+    el("tbody", {}, ...data.comps.map((c) => el("tr", { style: "cursor:default" }, el("td", { text: c.address || "" }), el("td", { class: "num", text: money(c.price) }), el("td", { class: "num", text: c.miles ?? "" }))))) : null;
+  const tx = (data.state || "TX") === "TX";
+  box.append(
+    el("div", { class: "sub", text: data.status === "pending" ? "Under contract with a buyer" : "Available" }),
+    el("h1", { style: "margin:4px 0 2px;font-size:26px", text: data.address || "Investment property" }),
+    el("div", { class: "sub", text: [data.city, data.state, data.zip].filter(Boolean).join(", ") + (data.county ? " · " + data.county + " County" : "") }),
+    el("div", { class: "mao", style: "margin:12px 0", text: money(data.asking_price) }),
+    t, data.summary ? el("p", { style: "white-space:pre-wrap;margin-top:12px", text: data.summary }) : null,
+    comps ? el("h3", { text: "Comparable sales" }) : null, comps,
+    data.contact ? el("div", { class: "panel" }, el("b", { text: "Interested? " }), data.contact) : null,
+    el("p", { class: "note", style: "margin-top:16px", text: (tx ? "Notice (Texas Occupations Code §1101.0045): " : "Notice: ") +
+      "The seller of this listing holds an equitable interest in a contract to buy this property and is offering that contract interest, not the property itself. The seller of this listing does not hold legal title to the property and is not the owner's agent. Buyers should verify all figures and inspect the property." }),
+    el("p", { class: "sub", style: "margin-top:24px", text: "Shared with BAP" }));
+}
+
+/* ---------- map-first leads (PropStream / Zillow pattern) ---------- */
+const KIND_COLORS = { pre_foreclosure: "#d1342f", foreclosure_sale: "#8e1b1b", tax_delinquent: "#e07b00", tax_sale: "#7b3fbf",
+  code_violation: "#2a78d6", probate: "#0f8b8d", vacant: "#6b7280", other: "#a16207", owner: "#64748b" };
+let leadMap = null, mapTimer = null, listOpen = false, mapReady = false;
+const filtersActive = (f) => !!(f.counties.length || f.kinds.length || f.flags.length || f.score > 0 || f.sale || f.q || f.sweet);
+function mapArgs(f) {
+  const b = leadMap.getBounds();
+  return { p_west: b.getWest(), p_south: b.getSouth(), p_east: b.getEast(), p_north: b.getNorth(), p_zoom: Math.round(leadMap.getZoom()),
+    p_counties: f.counties.length ? f.counties : null, p_kinds: f.kinds.length ? f.kinds : null, p_flags: f.flags.length ? f.flags : null,
+    p_min_score: f.score, p_sale_days: f.sale ? +f.sale : null, p_q: f.q || null,
+    p_price_min: f.sweet ? 100000 : null, p_price_max: f.sweet ? 200000 : null };
+}
+function shortMoney(v) { if (v == null) return ""; const n = Number(v); return n >= 1e6 ? "$" + (n / 1e6).toFixed(1) + "M" : "$" + Math.round(n / 1000) + "K"; }
+function mapFeatures(data) {
+  return (data.items || []).map((it) => {
+    const kind = (it.k && (Array.isArray(it.k) ? it.k[0] : it.k)) || "owner";
+    const col = KIND_COLORS[kind] || KIND_COLORS.owner;
+    const props = data.mode === "clusters"
+      ? { t: "c", n: it.n, col, label: it.n >= 1000 ? (it.n / 1000).toFixed(it.n >= 10000 ? 0 : 1) + "K" : String(it.n) }
+      : { t: "p", id: it.id, col, label: it.v ? shortMoney(it.v) : String(it.s ?? ""), raw: JSON.stringify(it) };
+    return { type: "Feature", geometry: { type: "Point", coordinates: [it.lng, it.lat] }, properties: props };
+  });
+}
+async function refreshMap() {
+  if (!mapReady) return;
+  const f = filters();
+  const { data, error } = await sb.rpc("lead_map", mapArgs(f));
+  if (error) { $("mapCount").textContent = "Couldn't load the map: " + error.message; return; }
+  leadMap.getSource("leads").setData({ type: "FeatureCollection", features: mapFeatures(data) });
+  const n = Number(data.total || 0), active = filtersActive(f);
+  $("mapCount").textContent = n.toLocaleString("en-US") + (n === 1 ? " lead" : " leads") + " in view";
+  $("listBtn").disabled = !active || n === 0;
+  $("listBtn").textContent = active ? "Show list" : "Filter to list";
+  $("listBtn").title = active ? "" : "Pick a lead type, owner type, score or search to see these leads as a list";
+  if (listOpen && !active) closeList();
+}
+function mapCard(it) {
+  const chips = el("div", { class: "chips" });
+  for (const k of it.k || []) chips.append(el("span", { class: "chip " + k, text: KINDS[k] || k }));
+  if (it.abs) chips.append(el("span", { class: "chip", text: "Absentee" }));
+  const open = el("button", { class: "primary small", type: "button", text: "Open details" });
+  open.onclick = () => openDetail(it.id);
+  return el("div", { class: "mapcard" },
+    el("div", { style: "display:flex;gap:8px;align-items:center" }, scoreBadge(it.s), el("div", { class: "addr", text: it.a || "Address unknown" })),
+    el("div", { class: "sub", text: [it.c, it.o ? "Owner: " + title(it.o) : null].filter(Boolean).join(" · ") }),
+    chips,
+    el("div", { class: "sub", text: [it.v ? "County value " + money(it.v) : null, it.sale ? "Auction " + it.sale : null].filter(Boolean).join(" · ") }),
+    el("div", { class: "row2" }, open));
+}
+function openList() { listOpen = true; $("listPanel").classList.remove("hidden"); state.page = 0; search(); }
+function closeList() { listOpen = false; $("listPanel").classList.add("hidden"); }
+function initMap() {
+  if (leadMap) return;
+  if (typeof maplibregl === "undefined") { $("mapCount").textContent = "Map couldn't load. Showing the list instead."; openList(); return; }
+  const leg = $("mapLegend");
+  for (const k of ["pre_foreclosure", "tax_delinquent", "tax_sale", "code_violation", "owner"])
+    leg.append(el("span", {}, el("i", { style: "background:" + KIND_COLORS[k] }), k === "owner" ? "Owner signals" : KINDS[k]));
+  leadMap = new maplibregl.Map({ container: "map", style: "https://tiles.openfreemap.org/styles/liberty",
+    center: [-96.95, 32.82], zoom: 8.3, attributionControl: { compact: true } });
+  leadMap.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
+  leadMap.addControl(new maplibregl.GeolocateControl({ trackUserLocation: false }), "bottom-right");
+  leadMap.on("load", () => {
+    leadMap.addSource("leads", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    leadMap.addLayer({ id: "clusters", type: "circle", source: "leads", filter: ["==", ["get", "t"], "c"],
+      paint: { "circle-color": ["get", "col"], "circle-opacity": 0.85, "circle-stroke-color": "#fff", "circle-stroke-width": 2,
+        "circle-radius": ["interpolate", ["linear"], ["get", "n"], 1, 12, 50, 18, 500, 26, 5000, 34] } });
+    leadMap.addLayer({ id: "cluster-count", type: "symbol", source: "leads", filter: ["==", ["get", "t"], "c"],
+      layout: { "text-field": ["get", "label"], "text-size": 12, "text-font": ["Noto Sans Bold"], "text-allow-overlap": true },
+      paint: { "text-color": "#fff" } });
+    leadMap.addLayer({ id: "pins", type: "circle", source: "leads", filter: ["==", ["get", "t"], "p"],
+      paint: { "circle-color": ["get", "col"], "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 5, 16, 8],
+        "circle-stroke-color": "#fff", "circle-stroke-width": 2 } });
+    leadMap.addLayer({ id: "pin-label", type: "symbol", source: "leads", filter: ["==", ["get", "t"], "p"], minzoom: 14,
+      layout: { "text-field": ["get", "label"], "text-size": 11, "text-offset": [0, 1.3], "text-anchor": "top", "text-font": ["Noto Sans Bold"] },
+      paint: { "text-color": "#16202b", "text-halo-color": "#fff", "text-halo-width": 1.5 } });
+    for (const id of ["clusters", "pins"]) {
+      leadMap.on("mouseenter", id, () => { leadMap.getCanvas().style.cursor = "pointer"; });
+      leadMap.on("mouseleave", id, () => { leadMap.getCanvas().style.cursor = ""; });
+    }
+    leadMap.on("click", "clusters", (e) => leadMap.easeTo({ center: e.features[0].geometry.coordinates, zoom: leadMap.getZoom() + 2 }));
+    leadMap.on("click", "pins", (e) => {
+      const it = JSON.parse(e.features[0].properties.raw);
+      new maplibregl.Popup({ offset: 12, maxWidth: "300px" }).setLngLat(e.features[0].geometry.coordinates).setDOMContent(mapCard(it)).addTo(leadMap);
+    });
+    leadMap.on("moveend", () => { clearTimeout(mapTimer); mapTimer = setTimeout(() => { refreshMap(); if (listOpen) { state.page = 0; search(); } }, 300); });
+    mapReady = true; refreshMap();
+    sb.rpc("map_coverage").then(({ data }) => {
+      if (data && data.leads && data.mapped < data.leads) {
+        $("mapNote").textContent = Number(data.mapped).toLocaleString("en-US") + " of " + Number(data.leads).toLocaleString("en-US") +
+          " leads are on the map so far. The rest are being placed nightly; filters and the list include all of them.";
+        $("mapNote").classList.remove("hidden"); setTimeout(() => $("mapNote").classList.add("hidden"), 12000);
+      }
+    });
+  });
+}
+$("listBtn").onclick = openList;
+$("closeList").onclick = closeList;
+$("mapFilters").onclick = () => { $("filters").classList.add("open"); $("scrim").classList.remove("hidden"); };
+// the map search box drives the same text filter, then flies to what it found
+$("mapQ").addEventListener("keydown", async (e) => {
+  if (e.key !== "Enter" || !mapReady) return;
+  $("fQ").value = $("mapQ").value.trim();
+  const f = filters();
+  const { data } = await sb.rpc("lead_map", { ...mapArgs(f), p_west: -107, p_south: 25, p_east: -93, p_north: 37, p_zoom: 18, p_max_pins: 200 });
+  const pts = (data && data.mode === "pins" ? data.items : []) || [];
+  if (pts.length === 1) leadMap.flyTo({ center: [pts[0].lng, pts[0].lat], zoom: 17 });
+  else if (pts.length > 1) {
+    const b = new maplibregl.LngLatBounds(); for (const p of pts) b.extend([p.lng, p.lat]);
+    leadMap.fitBounds(b, { padding: 60, maxZoom: 16 });
+  } else { refreshMap(); $("mapCount").textContent = "No mapped leads match that search yet"; }
+  updateFacets(f);
+});
+$("fQ").addEventListener("input", () => { $("mapQ").value = $("fQ").value; });
 
 /* ---------- search ---------- */
 function rpcArgs(f, limit, offset) {
   return { p_counties: f.counties.length ? f.counties : null, p_kinds: f.kinds.length ? f.kinds : null,
     p_flags: f.flags.length ? f.flags : null, p_min_score: f.score, p_sale_days: f.sale ? +f.sale : null,
     p_q: f.q || null, p_sort: f.sort, p_limit: limit, p_offset: offset,
-    p_price_min: f.sweet ? 100000 : null, p_price_max: f.sweet ? 200000 : null };
+    p_price_min: f.sweet ? 100000 : null, p_price_max: f.sweet ? 200000 : null,
+    ...(leadMap && mapReady && listOpen ? (({ p_west, p_south, p_east, p_north }) => ({ p_west, p_south, p_east, p_north }))(mapArgs(f)) : {}) };
 }
 async function search() {
   const f = filters();
@@ -627,6 +953,7 @@ function setView(v) {
   $("app").classList.toggle("hidden", v !== "leads"); $("pipe").classList.toggle("hidden", v !== "pipe");
   $("deals").classList.toggle("hidden", v !== "deals"); $("svc").classList.toggle("hidden", v !== "svc");
   $("lend").classList.toggle("hidden", v !== "lend"); $("vLend").setAttribute("aria-pressed", String(v === "lend")); if (v === "lend") loadLenders();
+  $("buy").classList.toggle("hidden", v !== "buy"); $("vBuy").setAttribute("aria-pressed", String(v === "buy")); if (v === "buy") { loadBuyers(); if (!$("bForm").childElementCount) buyerForm(null), $("bPanel").open = false; }
   $("vSvc").setAttribute("aria-pressed", String(v === "svc")); if (v === "svc") loadServices();
   $("vLeads").setAttribute("aria-pressed", String(v === "leads")); $("vPipe").setAttribute("aria-pressed", String(v === "pipe"));
   $("vDeals").setAttribute("aria-pressed", String(v === "deals"));
@@ -636,6 +963,7 @@ function setView(v) {
 $("vDeals").onclick = () => setView("deals");
 $("vSvc").onclick = () => setView("svc");
 $("vLend").onclick = () => setView("lend");
+$("vBuy").onclick = () => setView("buy");
 $("dStatus").onchange = () => loadVault();
 $("vLeads").onclick = () => setView("leads");
 $("vPipe").onclick = () => setView("pipe");
@@ -906,6 +1234,7 @@ async function renderDealPanel(leadId, propertyId, dp, pp) {
     if (r.error) { cmsg.textContent = "Couldn't create: " + r.error.message; return; }
     renderPipePanel(propertyId, pp);
   };
+  renderSellSection(leadId, dp, o);
 }
 
 // fill a template's {{fields}} from the deal; blanks become signature lines to fill by hand
@@ -1526,7 +1855,7 @@ async function loadSaved(selectName) {
 }
 $("savedSel").onchange = () => {
   const o = $("savedSel").selectedOptions[0]; if (!o || !o.value) return;
-  applyFilters(JSON.parse(o.dataset.filters)); state.page = 0; search();
+  applyFilters(JSON.parse(o.dataset.filters)); state.page = 0; refreshMap(); if (listOpen) search(); else if (filtersActive(filters())) openList();
 };
 $("saveList").onclick = async () => {
   const name = (prompt("Name this list", "") || "").trim(); if (!name) return;
