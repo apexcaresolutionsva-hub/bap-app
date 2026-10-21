@@ -146,6 +146,10 @@ main.results { position: relative; padding: 0; }
 .maplibregl-popup-content { padding: 12px 14px; border-radius: 12px; min-width: 230px; color: #16202b; }
 .mapcard .addr { font-weight: 700; }
 .mapcard .row2 { margin-top: 8px; }
+.map-hint { position: absolute; top: 112px; left: 50%; transform: translateX(-50%); z-index: 3; background: #16202b; color: #fff; border-radius: 999px;
+  padding: 6px 6px 6px 14px; font-size: 13px; display: flex; gap: 8px; align-items: center; box-shadow: 0 2px 10px rgba(10, 20, 35, .25); white-space: nowrap; }
+.map-hint.hidden { display: none; }
+#heatBtn[aria-pressed="true"] { background: #16202b; color: #fff; }
 .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
 .count { font-size: 20px; font-weight: 700; }
 .count small { font-size: 14px; font-weight: 400; color: var(--muted); margin-left: 6px; }
@@ -239,6 +243,9 @@ tbody tr:last-child td { border-bottom: 0; }
   .mapwrap { height: calc(100vh - 52px - 66px - env(safe-area-inset-bottom, 0px)); }
   .listpanel { top: auto; left: 0; width: 100%; height: 72%; border-left: 0; border-top: 1px solid var(--line); border-radius: 16px 16px 0 0; }
   .map-legend { display: none; }
+  .map-top { flex-wrap: wrap; }
+  .map-top .mapsearch { flex-basis: 100%; max-width: none; order: -1; }
+  .map-hint { top: 118px; }
   .map-bottom { bottom: 12px; }
 }
 </style>
@@ -309,7 +316,10 @@ tbody tr:last-child td { border-bottom: 0; }
       <div class="map-top">
         <button class="mapbtn filters-toggle" id="mapFilters" type="button">Filters</button>
         <input type="search" id="mapQ" class="mapsearch" placeholder="Address, street, ZIP or owner" aria-label="Search the map">
+        <button class="mapbtn" id="drawBtn" type="button">Draw area</button>
+        <button class="mapbtn" id="heatBtn" type="button" aria-pressed="false">Heat map</button>
       </div>
+      <div class="map-hint hidden" id="drawHint">Tap the map to outline an area. <button class="primary small" id="drawDone" type="button">Finish</button></div>
       <div class="map-legend" id="mapLegend" aria-label="Lead type colors"></div>
       <div class="map-bottom">
         <span id="mapCount" role="status">Loading map…</span>
@@ -560,12 +570,14 @@ async function updateFacets(f) {
 const checked = (box) => [...$(box).querySelectorAll("input:checked")].map((i) => i.value);
 function filters() {
   return { counties: checked("fCounties"), kinds: checked("fKinds"), flags: checked("fFlags"),
-    sale: $("fSale").value, score: +$("fScore").value, q: $("fQ").value.trim(), sort: $("sort").value, sweet: $("fSweet").checked };
+    sale: $("fSale").value, score: +$("fScore").value, q: $("fQ").value.trim(), sort: $("sort").value, sweet: $("fSweet").checked,
+    area: (typeof drawArea !== "undefined" && drawArea) ? drawArea : null };
 }
 function applyFilters(f) {
   for (const [box, vals] of [["fCounties", f.counties], ["fKinds", f.kinds], ["fFlags", f.flags]])
     $(box).querySelectorAll("input").forEach((i) => { i.checked = (vals || []).includes(i.value); });
-  $("fSale").value = f.sale || ""; $("fSweet").checked = !!f.sweet; $("fScore").value = f.score || 0; $("fScoreVal").textContent = f.score || 0;
+  $("fSale").value = f.sale || ""; $("fSweet").checked = !!f.sweet;
+  if (typeof drawArea !== "undefined") { drawArea = f.area || null; drawing = null; redrawArea(); setDrawUi(); } $("fScore").value = f.score || 0; $("fScoreVal").textContent = f.score || 0;
   $("fQ").value = f.q || ""; $("sort").value = f.sort || "score";
 }
 let timer;
@@ -881,13 +893,13 @@ async function renderPublicDeal(slug) {
 const KIND_COLORS = { pre_foreclosure: "#d1342f", foreclosure_sale: "#8e1b1b", tax_delinquent: "#e07b00", tax_sale: "#7b3fbf",
   code_violation: "#2a78d6", probate: "#0f8b8d", vacant: "#6b7280", other: "#a16207", owner: "#64748b" };
 let leadMap = null, mapTimer = null, listOpen = false, mapReady = false;
-const filtersActive = (f) => !!(f.counties.length || f.kinds.length || f.flags.length || f.score > 0 || f.sale || f.q || f.sweet);
+const filtersActive = (f) => !!(f.counties.length || f.kinds.length || f.flags.length || f.score > 0 || f.sale || f.q || f.sweet || (typeof drawArea !== "undefined" && drawArea));
 function mapArgs(f) {
   const b = leadMap.getBounds();
   return { p_west: b.getWest(), p_south: b.getSouth(), p_east: b.getEast(), p_north: b.getNorth(), p_zoom: Math.round(leadMap.getZoom()),
     p_counties: f.counties.length ? f.counties : null, p_kinds: f.kinds.length ? f.kinds : null, p_flags: f.flags.length ? f.flags : null,
     p_min_score: f.score, p_sale_days: f.sale ? +f.sale : null, p_q: f.q || null,
-    p_price_min: f.sweet ? 100000 : null, p_price_max: f.sweet ? 200000 : null };
+    p_price_min: f.sweet ? 100000 : null, p_price_max: f.sweet ? 200000 : null, p_area: drawArea ? JSON.stringify(drawArea) : null };
 }
 function shortMoney(v) { if (v == null) return ""; const n = Number(v); return n >= 1e6 ? "$" + (n / 1e6).toFixed(1) + "M" : "$" + Math.round(n / 1000) + "K"; }
 function mapFeatures(data) {
@@ -956,8 +968,10 @@ function initMap() {
       leadMap.on("mouseenter", id, () => { leadMap.getCanvas().style.cursor = "pointer"; });
       leadMap.on("mouseleave", id, () => { leadMap.getCanvas().style.cursor = ""; });
     }
-    leadMap.on("click", "clusters", (e) => leadMap.easeTo({ center: e.features[0].geometry.coordinates, zoom: leadMap.getZoom() + 2 }));
+    initDrawLayers();
+    leadMap.on("click", "clusters", (e) => drawing || leadMap.easeTo({ center: e.features[0].geometry.coordinates, zoom: leadMap.getZoom() + 2 }));
     leadMap.on("click", "pins", (e) => {
+      if (drawing) return;
       const it = JSON.parse(e.features[0].properties.raw);
       new maplibregl.Popup({ offset: 12, maxWidth: "300px" }).setLngLat(e.features[0].geometry.coordinates).setDOMContent(mapCard(it)).addTo(leadMap);
     });
@@ -991,13 +1005,76 @@ $("mapQ").addEventListener("keydown", async (e) => {
 });
 $("fQ").addEventListener("input", () => { $("mapQ").value = $("fQ").value; });
 
+/* ---------- draw an area on the map + heat map (PropStream-style) ---------- */
+let drawArea = null, drawing = null, heatOn = false;
+function drawSourceData() {
+  const feats = [];
+  if (drawArea) feats.push({ type: "Feature", geometry: drawArea, properties: { k: "area" } });
+  if (drawing && drawing.length) {
+    feats.push({ type: "Feature", geometry: { type: "LineString", coordinates: drawing.length > 1 ? drawing : [drawing[0], drawing[0]] }, properties: { k: "line" } });
+    for (const c of drawing) feats.push({ type: "Feature", geometry: { type: "Point", coordinates: c }, properties: { k: "vertex" } });
+  }
+  return { type: "FeatureCollection", features: feats };
+}
+function redrawArea() { if (leadMap && leadMap.getSource("draw")) leadMap.getSource("draw").setData(drawSourceData()); }
+function setDrawUi() {
+  $("drawBtn").textContent = drawing ? "Cancel drawing" : drawArea ? "Clear area" : "Draw area";
+  $("drawHint").classList.toggle("hidden", !drawing);
+  if (leadMap) { leadMap.getCanvas().style.cursor = drawing ? "crosshair" : ""; drawing ? leadMap.doubleClickZoom.disable() : leadMap.doubleClickZoom.enable(); }
+}
+function finishDrawing() {
+  if (!drawing || drawing.length < 3) { $("drawHint").firstChild.textContent = "Tap at least 3 points to outline an area. "; return; }
+  drawArea = { type: "Polygon", coordinates: [[...drawing, drawing[0]]] };
+  drawing = null; redrawArea(); setDrawUi();
+  const b = new maplibregl.LngLatBounds(); for (const c of drawArea.coordinates[0]) b.extend(c);
+  leadMap.fitBounds(b, { padding: 60, maxZoom: 16 });
+  state.page = 0; refreshMap(); updateFacets(filters()); if (listOpen) search();
+}
+function initDrawLayers() {
+  leadMap.addSource("draw", { type: "geojson", data: drawSourceData() });
+  leadMap.addLayer({ id: "area-fill", type: "fill", source: "draw", filter: ["==", ["get", "k"], "area"], paint: { "fill-color": "#2a78d6", "fill-opacity": 0.08 } });
+  leadMap.addLayer({ id: "area-line", type: "line", source: "draw", filter: ["any", ["==", ["get", "k"], "area"], ["==", ["get", "k"], "line"]],
+    paint: { "line-color": "#2a78d6", "line-width": 2.5, "line-dasharray": [2, 1] } });
+  leadMap.addLayer({ id: "area-vertex", type: "circle", source: "draw", filter: ["==", ["get", "k"], "vertex"],
+    paint: { "circle-radius": 6, "circle-color": "#fff", "circle-stroke-color": "#2a78d6", "circle-stroke-width": 2.5 } });
+  leadMap.addLayer({ id: "heat", type: "heatmap", source: "leads", layout: { visibility: "none" },
+    paint: { "heatmap-weight": ["interpolate", ["linear"], ["coalesce", ["get", "n"], 1], 1, 0.15, 50, 0.45, 500, 0.8, 5000, 1],
+      "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 6, 18, 10, 30, 14, 40], "heatmap-opacity": 0.75,
+      "heatmap-color": ["interpolate", ["linear"], ["heatmap-density"], 0, "rgba(42,120,214,0)", 0.2, "#7fb3e8", 0.45, "#f2c14e", 0.7, "#e07b00", 1, "#b42318"] } }, "clusters");
+  leadMap.on("click", (e) => {
+    if (!drawing) return;
+    const pt = [e.lngLat.lng, e.lngLat.lat];
+    if (drawing.length >= 3) {                                         // tapping near the first point closes the shape
+      const a = leadMap.project(drawing[0]), b = leadMap.project(pt);
+      if (Math.hypot(a.x - b.x, a.y - b.y) < 16) { finishDrawing(); return; }
+    }
+    drawing.push(pt); redrawArea();
+    $("drawHint").firstChild.textContent = drawing.length < 3 ? "Tap " + (3 - drawing.length) + " more point" + (3 - drawing.length === 1 ? "" : "s") + " to outline an area. " : "Tap the first point or Finish to close it. ";
+  });
+}
+$("drawBtn").onclick = () => {
+  if (!mapReady) return;
+  if (drawing) { drawing = null; redrawArea(); setDrawUi(); return; }                 // cancel
+  if (drawArea) { drawArea = null; redrawArea(); setDrawUi(); state.page = 0; refreshMap(); updateFacets(filters()); if (listOpen) search(); return; }  // clear
+  drawing = []; redrawArea(); setDrawUi(); $("drawHint").firstChild.textContent = "Tap the map to outline an area. ";
+};
+$("drawDone").onclick = finishDrawing;
+$("heatBtn").onclick = () => {
+  if (!mapReady) return;
+  heatOn = !heatOn;
+  leadMap.setLayoutProperty("heat", "visibility", heatOn ? "visible" : "none");
+  for (const id of ["clusters", "cluster-count"]) leadMap.setLayoutProperty(id, "visibility", heatOn ? "none" : "visible");
+  $("heatBtn").setAttribute("aria-pressed", String(heatOn)); $("heatBtn").textContent = heatOn ? "Pins" : "Heat map";
+};
+
 /* ---------- search ---------- */
 function rpcArgs(f, limit, offset) {
   return { p_counties: f.counties.length ? f.counties : null, p_kinds: f.kinds.length ? f.kinds : null,
     p_flags: f.flags.length ? f.flags : null, p_min_score: f.score, p_sale_days: f.sale ? +f.sale : null,
     p_q: f.q || null, p_sort: f.sort, p_limit: limit, p_offset: offset,
     p_price_min: f.sweet ? 100000 : null, p_price_max: f.sweet ? 200000 : null,
-    ...(leadMap && mapReady && listOpen ? (({ p_west, p_south, p_east, p_north }) => ({ p_west, p_south, p_east, p_north }))(mapArgs(f)) : {}) };
+    ...(leadMap && mapReady && listOpen ? (({ p_west, p_south, p_east, p_north }) => ({ p_west, p_south, p_east, p_north }))(mapArgs(f)) : {}),
+    p_area: (typeof drawArea !== "undefined" && drawArea) ? JSON.stringify(drawArea) : null };
 }
 async function search() {
   const f = filters();
