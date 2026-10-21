@@ -255,6 +255,8 @@ tbody tr:last-child td { border-bottom: 0; }
       <option value="">Any time</option><option value="14">Within 14 days</option>
       <option value="30">Within 30 days</option><option value="60">Within 60 days</option>
     </select>
+    <h2>Price</h2>
+    <label title="Homes bought for $100K to $200K produced the best flip margins in 2026 (ATTOM). Uses the county's value."><input type="checkbox" id="fSweet"> Sweet spot: $100K to $200K county value</label>
     <h2>Minimum score: <span id="fScoreVal">0</span></h2>
     <input type="range" id="fScore" min="0" max="100" step="5" value="0">
     <h2>Search</h2>
@@ -480,12 +482,12 @@ async function updateFacets(f) {
 const checked = (box) => [...$(box).querySelectorAll("input:checked")].map((i) => i.value);
 function filters() {
   return { counties: checked("fCounties"), kinds: checked("fKinds"), flags: checked("fFlags"),
-    sale: $("fSale").value, score: +$("fScore").value, q: $("fQ").value.trim(), sort: $("sort").value };
+    sale: $("fSale").value, score: +$("fScore").value, q: $("fQ").value.trim(), sort: $("sort").value, sweet: $("fSweet").checked };
 }
 function applyFilters(f) {
   for (const [box, vals] of [["fCounties", f.counties], ["fKinds", f.kinds], ["fFlags", f.flags]])
     $(box).querySelectorAll("input").forEach((i) => { i.checked = (vals || []).includes(i.value); });
-  $("fSale").value = f.sale || ""; $("fScore").value = f.score || 0; $("fScoreVal").textContent = f.score || 0;
+  $("fSale").value = f.sale || ""; $("fSweet").checked = !!f.sweet; $("fScore").value = f.score || 0; $("fScoreVal").textContent = f.score || 0;
   $("fQ").value = f.q || ""; $("sort").value = f.sort || "score";
 }
 let timer;
@@ -498,7 +500,8 @@ $("fScore").addEventListener("input", () => { $("fScoreVal").textContent = $("fS
 function rpcArgs(f, limit, offset) {
   return { p_counties: f.counties.length ? f.counties : null, p_kinds: f.kinds.length ? f.kinds : null,
     p_flags: f.flags.length ? f.flags : null, p_min_score: f.score, p_sale_days: f.sale ? +f.sale : null,
-    p_q: f.q || null, p_sort: f.sort, p_limit: limit, p_offset: offset };
+    p_q: f.q || null, p_sort: f.sort, p_limit: limit, p_offset: offset,
+    p_price_min: f.sweet ? 100000 : null, p_price_max: f.sweet ? 200000 : null };
 }
 async function search() {
   const f = filters();
