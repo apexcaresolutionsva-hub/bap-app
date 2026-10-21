@@ -215,10 +215,10 @@ tbody tr:last-child td { border-bottom: 0; }
   .app { grid-template-columns: minmax(0, 1fr); }
   body.signed-in { padding-bottom: calc(66px + env(safe-area-inset-bottom, 0px)); }
   header.bar { gap: 10px; }
-  .bar .views { position: fixed; left: 0; right: 0; bottom: 0; z-index: 12; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
+  .bar .views { position: fixed; left: 0; right: 0; bottom: 0; z-index: 12; display: flex; overflow-x: auto; scrollbar-width: none;
     gap: 4px; background: var(--brand); padding: 6px 6px calc(env(safe-area-inset-bottom, 0px) + 6px);
     border-top: 1px solid rgba(255, 255, 255, .18); box-shadow: 0 -4px 14px rgba(10, 20, 35, .15); }
-  .bar .views button { border: 0; border-radius: 8px; padding: 9px 0; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar .views button { flex: 1 0 64px; border: 0; border-radius: 8px; padding: 9px 4px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .bar .views button[aria-pressed="true"] { background: rgba(255, 255, 255, .18); }
   .toolbar { gap: 8px; }
   .toolbar .count { width: 100%; order: -1; }
@@ -252,6 +252,7 @@ tbody tr:last-child td { border-bottom: 0; }
     <button type="button" id="vDeals" aria-pressed="false">Contracts</button>
     <button type="button" id="vLend" aria-pressed="false">Lenders</button>
     <button type="button" id="vBuy" aria-pressed="false">Buyers</button>
+    <button type="button" id="vCrew" aria-pressed="false">Contractors</button>
     <button type="button" id="vSvc" aria-pressed="false">Services</button>
   </nav>
   <span class="spacer"></span>
@@ -352,8 +353,10 @@ tbody tr:last-child td { border-bottom: 0; }
   <div class="toolbar">
     <span class="count" id="pCount">Pipeline</span>
     <span class="spacer"></span>
+    <button class="primary small" id="pAddBtn" type="button">Add property</button>
     <label class="sub"><input type="checkbox" id="pDue"> Due for follow-up only</label>
   </div>
+  <details class="panel hidden" id="pAdd"><summary style="cursor:pointer;font-weight:700">Add a property you found yourself</summary><div id="pAddForm" style="margin-top:8px"></div></details>
   <div class="stages" id="pStages"></div>
   <div class="table-wrap">
     <table>
@@ -394,7 +397,15 @@ tbody tr:last-child td { border-bottom: 0; }
     <div class="grid4" id="lTgtForm"></div>
     <div class="row2" style="margin-top:8px"><button class="primary small" type="button" id="lTgtSave">Save targets</button><span class="sub" id="lTgtMsg" role="status"></span></div>
   </details>
-  <div class="panel"><b>Lender directory</b><p class="sub" style="margin:4px 0 0">Coming next: hard-money, DSCR and transactional lenders who opt in to receive BAP deal packets, with one-tap sending once your business email is set up. Until then, print the lender packet from any deal and email it yourself.</p></div>
+  <h3 style="margin-top:18px">Your lenders</h3>
+  <p class="sub" style="margin-top:-4px">Add the lenders you work with (loan types and areas). Inside any deal, Deal numbers shows which of them fit and drafts the email for you.</p>
+  <div id="lendContacts"></div>
+</section>
+
+<section class="pipe hidden" id="crew" aria-label="Contractors">
+  <div class="toolbar"><span class="count">Contractors</span></div>
+  <p class="sub" style="margin-top:-6px">Your own contractors: their trades, the areas they work, license and insurance. Build a rehab estimate inside any deal and BAP shows which of your contractors fit the job, with a ready-to-send bid request.</p>
+  <div id="crewContacts"></div>
 </section>
 
 <section class="pipe hidden" id="buy" aria-label="Buyers">
@@ -473,7 +484,7 @@ let state = { page: 0, total: 0, rows: [] };
 let signUp = false;
 
 /* ---------- auth ---------- */
-function showAuth() { $("auth").classList.remove("hidden"); $("app").classList.add("hidden"); $("pipe").classList.add("hidden"); $("deals").classList.add("hidden"); $("svc").classList.add("hidden"); $("lend").classList.add("hidden"); $("buy").classList.add("hidden"); $("views").classList.add("hidden"); $("signout").classList.add("hidden"); $("who").textContent = ""; }
+function showAuth() { $("auth").classList.remove("hidden"); $("app").classList.add("hidden"); $("pipe").classList.add("hidden"); $("deals").classList.add("hidden"); $("svc").classList.add("hidden"); $("lend").classList.add("hidden"); $("buy").classList.add("hidden"); $("crew").classList.add("hidden"); $("views").classList.add("hidden"); $("signout").classList.add("hidden"); $("who").textContent = ""; }
 let shownFor = null;
 async function showApp(user) {
   if (shownFor === user.id) return;          // sign-in fires more than one auth event; build the screen once
@@ -562,6 +573,165 @@ const refresh = () => { clearTimeout(timer); timer = setTimeout(() => { state.pa
 document.addEventListener("change", (e) => { if (e.target.closest("#filters") || e.target.id === "sort") refresh(); });
 $("fQ").addEventListener("input", refresh);
 $("fScore").addEventListener("input", () => { $("fScoreVal").textContent = $("fScore").value; refresh(); });
+
+/* ---------- your own contacts (lenders, contractors...) + Tab 5 contractors + rehab estimate ---------- */
+const CONTACT_LABEL = { lender: "lender", contractor: "contractor", title: "title company", attorney: "attorney" };
+const SPEC_HINT = { lender: "Loan types (hard money, dscr, transactional, private)", contractor: "Trades (general, roof, hvac, plumbing, electrical, foundation, flooring, paint)" };
+function contactsPanel(kind, mount) {
+  mount.textContent = "";
+  const list = el("div"), form = el("div", { class: "grid4", style: "margin-top:8px" }), msg = el("span", { class: "sub", role: "status" });
+  let editing = null;
+  const F = [["name", "Name *"], ["company", "Company"], ["phone", "Phone"], ["email", "Email"], ["specialties", SPEC_HINT[kind] || "Specialties"],
+    ["counties", "Counties served"], ["cities", "Cities served"], ["zips", "ZIP codes served"]];
+  if (kind === "contractor") F.push(["license_no", "License #"], ["insured", "Insured? (yes/no)"], ["rating", "Your rating 1-5"]);
+  F.push(["notes", "Notes"]);
+  const det = el("details", { class: "panel" }, el("summary", { style: "cursor:pointer;font-weight:700", text: "Add a " + CONTACT_LABEL[kind] }), form);
+  const fill = (c) => { form.textContent = ""; editing = c ? c.id : null;
+    for (const [k, lab] of F) { let v = c ? c[k] : ""; if (Array.isArray(v)) v = v.join(", "); if (k === "insured" && c) v = c.insured == null ? "" : c.insured ? "yes" : "no";
+      form.append(el("label", {}, lab, el("input", { "data-k": k, value: v ?? "" }))); }
+    const save = el("button", { class: "primary small", type: "button", text: c ? "Save changes" : "Save " + CONTACT_LABEL[kind] });
+    const del = c ? el("button", { class: "ghost small", type: "button", text: "Remove" }) : null;
+    save.onclick = async () => {
+      const p = { kind, id: editing || "" };
+      for (const i of form.querySelectorAll("input[data-k]")) p[i.dataset.k] = i.value.trim();
+      p.insured = /^y/i.test(p.insured || "") ? "true" : /^n/i.test(p.insured || "") ? "false" : "";
+      p.rating = p.rating ? String(Math.min(5, Math.max(1, parseInt(p.rating, 10) || 0)) || "") : "";
+      const r = await sb.rpc("save_contact", { p });
+      msg.textContent = r.error ? "Couldn't save: " + r.error.message : "Saved."; if (!r.error) { det.open = false; load(); fill(null); }
+    };
+    if (del) del.onclick = async () => { if (!confirm("Remove from your list?")) return; await sb.from("org_contacts").update({ active: false }).eq("id", c.id); det.open = false; load(); fill(null); };
+    form.append(el("div", { class: "row2", style: "grid-column:1/-1" }, save, del, msg));
+  };
+  async function load() {
+    const { data, error } = await sb.from("org_contacts").select("*").eq("kind", kind).eq("active", true).order("created_at", { ascending: false });
+    list.textContent = "";
+    if (error) { list.append(el("p", { class: "sub", text: error.message })); return; }
+    if (!(data || []).length) { list.append(el("p", { class: "sub", text: "No " + CONTACT_LABEL[kind] + "s yet. Add the ones you work with; BAP matches them to each deal by area" + (kind === "contractor" ? " and trade." : " and loan type.") })); return; }
+    const t = el("table", {}, el("thead", {}, el("tr", {}, ...["Name", "Specialties", "Works in", "Contact", kind === "contractor" ? "Insured / rating" : "Notes"].map((h) => el("th", { text: h })))));
+    const tb = el("tbody");
+    for (const c of data) {
+      const area = [c.zips.length ? "ZIP " + c.zips.join(", ") : null, c.cities.join(", ") || null, c.counties.length ? c.counties.join(", ") + " County" : null].filter(Boolean).join(" · ") || "Anywhere";
+      const tr = el("tr", { tabindex: "0" }, el("td", {}, el("b", { text: c.name }), c.company ? el("div", { class: "sub", text: c.company }) : null),
+        el("td", { text: (c.specialties || []).join(", ") }), el("td", { text: area }),
+        el("td", {}, c.phone ? el("div", { text: c.phone }) : null, c.email ? el("div", { class: "sub", text: c.email }) : null),
+        el("td", { class: "sub", text: kind === "contractor" ? [c.insured == null ? null : c.insured ? "Insured" : "Not insured", c.rating ? "\u2605".repeat(c.rating) : null].filter(Boolean).join(" · ") : (c.notes || "") }));
+      tr.onclick = () => { fill(c); det.open = true; det.scrollIntoView({ block: "start", behavior: "smooth" }); };
+      tb.append(tr);
+    }
+    t.append(tb); list.append(el("div", { class: "table-wrap" }, t));
+  }
+  fill(null); mount.append(det, list); load();
+}
+
+// rehab estimate inside each lead: scope items -> total -> deal numbers + bid requests
+const REHAB_CATS = [["Roof", "sq"], ["HVAC", "system"], ["Kitchen", "room"], ["Bathroom", "room"], ["Flooring", "sqft"], ["Interior paint", "sqft"],
+  ["Exterior paint", "house"], ["Electrical", "job"], ["Plumbing", "job"], ["Foundation", "job"], ["Windows", "each"], ["Doors", "each"],
+  ["Landscaping", "job"], ["Demo + dumpster", "job"], ["Permits", "job"], ["Other", "job"]];
+const TRADE_OF = { "Roof": "roof", "HVAC": "hvac", "Electrical": "electrical", "Plumbing": "plumbing", "Foundation": "foundation", "Flooring": "flooring",
+  "Interior paint": "paint", "Exterior paint": "paint", "Windows": "windows", "Landscaping": "landscaping" };
+async function renderRehabSection(leadId, dp) {
+  dp.append(el("h3", { text: "Rehab estimate", style: "margin-top:16px" }));
+  const box = el("div"); dp.append(box);
+  const { data } = await sb.rpc("rehab_for_lead", { p_lead: leadId });
+  let items = (data || []).map((x) => ({ ...x }));
+  const tbl = el("div"), totalEl = el("div", { class: "mao", style: "margin:8px 0" }), msg = el("span", { class: "sub", role: "status" });
+  const quick = el("div", { class: "chips", style: "margin:6px 0" });
+  for (const [cat, unit] of REHAB_CATS) { const b = el("button", { class: "chip", type: "button", text: "+ " + cat }); b.onclick = () => { items.push({ category: cat, item: cat, qty: 1, unit, unit_cost: "" }); draw(); }; quick.append(b); }
+  const total = () => items.reduce((a, x) => a + (Number(x.qty) || 0) * (Number(x.unit_cost) || 0), 0);
+  function draw() {
+    tbl.textContent = "";
+    if (!items.length) { tbl.append(el("p", { class: "sub", text: "Tap a category to add a line, then enter quantity and your cost per unit (or a contractor's bid)." })); }
+    else {
+      const t = el("table", { style: "min-width:0;font-size:13px" }, el("thead", {}, el("tr", {}, ...["Item", "Qty", "Unit", "Cost / unit", "Line", ""].map((h) => el("th", { text: h })))));
+      const tb = el("tbody");
+      items.forEach((x, i) => {
+        const inp = (k, w, mode) => { const e = el("input", { value: x[k] ?? "", inputmode: mode || "text", style: "width:" + w }); e.oninput = () => { x[k] = e.value; line.textContent = money((Number(x.qty) || 0) * (num(x.unit_cost) || 0)); totalEl.textContent = "Total " + money(items.reduce((a, y) => a + (Number(y.qty) || 0) * (num(y.unit_cost) || 0), 0)); }; return e; };
+        const line = el("td", { class: "num", text: money((Number(x.qty) || 0) * (num(x.unit_cost) || 0)) });
+        const rm = el("button", { class: "ghost small", type: "button", text: "\u2715", "aria-label": "Remove line" }); rm.onclick = () => { items.splice(i, 1); draw(); };
+        tb.append(el("tr", { style: "cursor:default" }, el("td", {}, inp("item", "100%")), el("td", {}, inp("qty", "60px", "decimal")), el("td", {}, inp("unit", "60px")),
+          el("td", {}, inp("unit_cost", "90px", "decimal")), line, el("td", {}, rm)));
+      });
+      t.append(tb); tbl.append(el("div", { style: "overflow-x:auto" }, t));
+    }
+    totalEl.textContent = "Total " + money(items.reduce((a, y) => a + (Number(y.qty) || 0) * (num(y.unit_cost) || 0), 0));
+  }
+  const save = el("button", { class: "primary small", type: "button", text: "Save estimate" });
+  const use = el("button", { class: "ghost small", type: "button", text: "Use in deal numbers" });
+  const bids = el("button", { class: "ghost small", type: "button", text: "Request bids" });
+  const bidBox = el("div", { style: "margin-top:8px" });
+  save.onclick = async () => {
+    const r = await sb.rpc("save_rehab", { p_lead: leadId, p_items: items.map((x) => ({ ...x, unit_cost: String(num(x.unit_cost) ?? 0), qty: String(Number(x.qty) || 1) })) });
+    msg.textContent = r.error ? "Couldn't save: " + r.error.message : "Saved: " + money(r.data);
+  };
+  use.onclick = () => { const v = Math.round(items.reduce((a, y) => a + (Number(y.qty) || 0) * (num(y.unit_cost) || 0), 0));
+    const f = $("mRehab"); if (f) { f.value = v; f.dispatchEvent(new Event("input", { bubbles: true })); msg.textContent = "Deal numbers updated with " + money(v) + "."; f.scrollIntoView({ block: "center", behavior: "smooth" }); } };
+  bids.onclick = async () => {
+    bidBox.textContent = "";
+    const trades = [...new Set(items.map((x) => TRADE_OF[x.category]).filter(Boolean))];
+    const { data: cs, error } = await sb.rpc("match_contacts", { p_lead: leadId, p_kind: "contractor", p_specialties: trades.length ? trades : null });
+    if (error) { bidBox.append(el("p", { class: "sub", text: error.message })); return; }
+    if (!(cs || []).length) { bidBox.append(el("p", { class: "sub", text: "No matching contractors yet. Add the contractors you use in the Contractors tab, with their trades and the areas they work." })); return; }
+    const p = window.__prop || {};
+    const scope = items.map((x) => "- " + x.item + (x.qty ? " (" + x.qty + " " + (x.unit || "") + ")" : "")).join("\n");
+    const body = "Bid request: " + [p.address_line, p.city, p.zip].filter(Boolean).join(", ") + "\n\nScope of work:\n" + (scope || "- Full walkthrough needed") +
+      "\n\nPlease reply with your price, timeline and when you can walk the property.";
+    bidBox.append(el("div", { style: "font-weight:700", text: cs.length + " contractor" + (cs.length === 1 ? "" : "s") + " fit this job" }));
+    for (const c of cs) bidBox.append(el("div", { class: "note", style: "margin:4px 0" }, el("b", { text: c.name }), c.company ? " · " + c.company : "",
+      el("div", { class: "sub", text: [(c.specialties || []).join(", "), c.insured ? "Insured" : null, c.rating ? "\u2605".repeat(c.rating) : null].filter(Boolean).join(" · ") }),
+      el("div", { class: "row2" }, c.phone ? el("a", { href: "tel:" + c.phone, text: c.phone }) : null, c.email ? el("a", { href: "mailto:" + c.email, text: c.email }) : null)));
+    const emails = cs.map((c) => c.email).filter(Boolean);
+    const copy = el("button", { class: "ghost small", type: "button", text: "Copy scope" });
+    copy.onclick = async () => { try { await navigator.clipboard.writeText(body); copy.textContent = "Copied"; } catch (e) { prompt("Copy:", body); } };
+    bidBox.append(el("div", { class: "row2" }, emails.length ? el("a", { class: "primary small", style: "text-decoration:none;padding:6px 12px;border-radius:8px",
+      href: "mailto:?bcc=" + encodeURIComponent(emails.join(",")) + "&subject=" + encodeURIComponent("Bid request: " + (p.address_line || "")) + "&body=" + encodeURIComponent(body),
+      text: "Email " + emails.length + " contractor" + (emails.length === 1 ? "" : "s") }) : null, copy));
+  };
+  box.append(quick, tbl, totalEl, el("div", { class: "row2" }, save, use, bids, msg), bidBox);
+  draw();
+}
+
+// lenders who fit a deal, with a ready-to-send summary
+async function showLenderMatches(leadId, last, box) {
+  box.textContent = "";
+  if (!last) { box.append(el("p", { class: "sub", text: "Enter the numbers first." })); return; }
+  const { i, r } = last;
+  const want = i.strategy === "rental" ? ["dscr"] : i.finance === "cash" ? null : ["hard money"];
+  const { data: ls, error } = await sb.rpc("match_contacts", { p_lead: leadId, p_kind: "lender", p_specialties: want });
+  if (error) { box.append(el("p", { class: "sub", text: error.message })); return; }
+  if (!(ls || []).length) { box.append(el("p", { class: "sub", text: "No matching lenders yet. Add the lenders you work with in the Lenders tab, with their loan types and areas." })); return; }
+  const p = window.__prop || {};
+  const body = "Loan request: " + [p.address_line, p.city, p.zip].filter(Boolean).join(", ") + "\nStrategy: " + (STRATS[i.strategy] || i.strategy) +
+    "\nPurchase " + money(i.purchase) + " · Rehab " + money(i.rehab) + " · ARV " + money(i.arv) + "\nLoan requested " + money(r.loan) + " · Borrower cash " + money(r.cashNeeded) +
+    "\n\nFull lender packet (PDF) attached.";
+  box.append(el("div", { style: "font-weight:700", text: ls.length + " of your lenders fit this deal" }));
+  for (const l of ls) box.append(el("div", { class: "note", style: "margin:4px 0" }, el("b", { text: l.name }), l.company ? " · " + l.company : "",
+    el("div", { class: "sub", text: (l.specialties || []).join(", ") }),
+    el("div", { class: "row2" }, l.phone ? el("a", { href: "tel:" + l.phone, text: l.phone }) : null, l.email ? el("a", { href: "mailto:" + l.email, text: l.email }) : null)));
+  const emails = ls.map((l) => l.email).filter(Boolean);
+  if (emails.length) box.append(el("a", { class: "primary small", style: "text-decoration:none;padding:6px 12px;border-radius:8px;display:inline-block;margin-top:6px",
+    href: "mailto:?bcc=" + encodeURIComponent(emails.join(",")) + "&subject=" + encodeURIComponent("Loan request: " + (p.address_line || "")) + "&body=" + encodeURIComponent(body),
+    text: "Email " + emails.length + " lender" + (emails.length === 1 ? "" : "s") }));
+  box.append(el("p", { class: "sub", text: "Tip: open the Lender packet (PDF), save it, and attach it to the email." }));
+}
+
+// add a property you found yourself
+function addPropertyForm() {
+  const box = $("pAddForm"); if (box.childElementCount) return;
+  const F = [["address", "Street address *"], ["city", "City"], ["zip", "ZIP"], ["county", "County"], ["owner", "Owner name"], ["owner_mail", "Owner mailing address"],
+    ["beds", "Beds"], ["baths", "Baths"], ["sqft", "Sq ft"], ["year_built", "Year built"], ["value", "Est. value ($)"], ["note", "How you found it"]];
+  const g = el("div", { class: "grid4" }); for (const [k, lab] of F) g.append(el("label", {}, lab, el("input", { "data-k": k })));
+  const msg = el("span", { class: "sub", role: "status" });
+  const save = el("button", { class: "primary small", type: "button", text: "Add to my pipeline" });
+  save.onclick = async () => {
+    const p = {}; for (const i of g.querySelectorAll("input[data-k]")) p[i.dataset.k] = i.value.trim();
+    for (const k of ["beds", "baths", "sqft", "year_built", "value"]) p[k] = p[k] ? String(num(p[k]) ?? "") : "";
+    const r = await sb.rpc("add_my_property", { p });
+    if (r.error) { msg.textContent = "Couldn't add: " + r.error.message; return; }
+    msg.textContent = "Added."; $("pAdd").open = false; for (const i of g.querySelectorAll("input")) i.value = "";
+    loadPipeline(); openDetail(r.data.property_id);
+  };
+  box.append(g, el("div", { class: "row2", style: "margin-top:8px" }, save, msg));
+}
 
 /* ---------- Tab 4: buyers + selling the contract ---------- */
 const BUYER_FIELDS = [["name", "Name *"], ["company", "Company"], ["phone", "Phone"], ["email", "Email"],
@@ -680,7 +850,7 @@ async function valuationCompsFor() {
 
 // public deal page: app.buybap.com/#deal/<slug>, no sign-in
 async function renderPublicDeal(slug) {
-  for (const id of ["auth", "app", "pipe", "deals", "svc", "lend", "buy", "views"]) if ($(id)) $(id).classList.add("hidden");
+  for (const id of ["auth", "app", "pipe", "deals", "svc", "lend", "buy", "crew", "views"]) if ($(id)) $(id).classList.add("hidden");
   const box = $("dealPublic"); box.classList.remove("hidden"); box.textContent = "Loading deal…";
   const { data, error } = await sb.rpc("public_deal", { p_slug: slug });
   box.textContent = "";
@@ -953,6 +1123,7 @@ function setView(v) {
   $("app").classList.toggle("hidden", v !== "leads"); $("pipe").classList.toggle("hidden", v !== "pipe");
   $("deals").classList.toggle("hidden", v !== "deals"); $("svc").classList.toggle("hidden", v !== "svc");
   $("lend").classList.toggle("hidden", v !== "lend"); $("vLend").setAttribute("aria-pressed", String(v === "lend")); if (v === "lend") loadLenders();
+  $("crew").classList.toggle("hidden", v !== "crew"); $("vCrew").setAttribute("aria-pressed", String(v === "crew")); if (v === "crew") contactsPanel("contractor", $("crewContacts"));
   $("buy").classList.toggle("hidden", v !== "buy"); $("vBuy").setAttribute("aria-pressed", String(v === "buy")); if (v === "buy") { loadBuyers(); if (!$("bForm").childElementCount) buyerForm(null), $("bPanel").open = false; }
   $("vSvc").setAttribute("aria-pressed", String(v === "svc")); if (v === "svc") loadServices();
   $("vLeads").setAttribute("aria-pressed", String(v === "leads")); $("vPipe").setAttribute("aria-pressed", String(v === "pipe"));
@@ -964,6 +1135,8 @@ $("vDeals").onclick = () => setView("deals");
 $("vSvc").onclick = () => setView("svc");
 $("vLend").onclick = () => setView("lend");
 $("vBuy").onclick = () => setView("buy");
+$("vCrew").onclick = () => setView("crew");
+$("pAddBtn").onclick = () => { $("pAdd").classList.remove("hidden"); $("pAdd").open = true; addPropertyForm(); $("pAdd").scrollIntoView({ block: "start", behavior: "smooth" }); };
 $("dStatus").onchange = () => loadVault();
 $("vLeads").onclick = () => setView("leads");
 $("vPipe").onclick = () => setView("pipe");
@@ -1159,6 +1332,7 @@ async function renderDealPanel(leadId, propertyId, dp, pp) {
     omsg.textContent = r.error ? "Couldn't save: " + r.error.message : "Saved to the lead's history.";
     if (!r.error) renderPipePanel(propertyId, pp);
   };
+  await renderRehabSection(leadId, dp);
   renderModelSection(leadId, dp, o);
   // contracts
   dp.append(el("h3", { text: "Contracts", style: "margin-top:16px" }));
@@ -1696,6 +1870,7 @@ const TGT_FIELDS = [["flip_min_profit", "Flip: minimum profit ($)"], ["flip_min_
   ["rental_min_coc", "Rental: cash-on-cash target (%)"], ["min_dscr", "Debt coverage lenders want (x)"]];
 const STRAT_SHORT = { flip: "Flip", rental: "Rental", brrrr: "BRRRR" };
 async function loadLenders() {
+  contactsPanel("lender", $("lendContacts"));
   const T = await dealTargets(true);
   const form = $("lTgtForm"); form.textContent = "";
   for (const [k, lab] of TGT_FIELDS) form.append(el("label", {}, lab, el("input", { id: "tg_" + k, inputmode: "decimal", value: T[k] })));
@@ -1804,7 +1979,9 @@ function renderModelSection(leadId, dp, o) {
     msg.textContent = res2.error ? "Couldn't save: " + res2.error.message : "Saved to the lead's history.";
   };
   packet.onclick = () => lenderPacket(leadId, last, msg);
-  dp.append(box, res, el("div", { class: "row2", style: "margin-top:8px" }, save, packet, msg));
+  const lendBtn = el("button", { class: "ghost small", type: "button", text: "Find lenders" }), lendBox = el("div", { style: "margin-top:8px" });
+  lendBtn.onclick = () => showLenderMatches(leadId, last, lendBox);
+  dp.append(box, res, el("div", { class: "row2", style: "margin-top:8px" }, save, packet, lendBtn, msg), lendBox);
   show();
 }
 async function lenderPacket(leadId, last, msg) {
