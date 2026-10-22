@@ -366,6 +366,7 @@ tbody tr:last-child td { border-bottom: 0; }
     <button class="primary small" id="pAddBtn" type="button">Add property</button>
     <label class="sub"><input type="checkbox" id="pDue"> Due for follow-up only</label>
   </div>
+  <div class="note hidden" id="bizNudge" style="margin-bottom:10px">Set up your business profile once so contracts, deal pages and emails fill in automatically. <button class="primary small" id="bizGo" type="button">Set it up</button></div>
   <details class="panel hidden" id="pAdd"><summary style="cursor:pointer;font-weight:700">Add a property you found yourself</summary><div id="pAddForm" style="margin-top:8px"></div></details>
   <div class="stages" id="pStages"></div>
   <div class="table-wrap">
@@ -435,7 +436,12 @@ tbody tr:last-child td { border-bottom: 0; }
 
 <section class="pipe hidden" id="svc" aria-label="Services">
   <div class="toolbar"><span class="count">Services</span><span class="spacer"></span><span class="sub" id="svcPlan"></span></div>
-  <p class="sub" style="margin-top:-6px">Pay only when you use them. Members get lower prices. Charges are recorded on your BAP account.</p>
+  <details class="panel" id="bizPanel"><summary style="cursor:pointer;font-weight:700">My business profile</summary>
+    <p class="sub">Fill this in once. BAP uses it on your contracts (buying name, title company, earnest money, inspection days), on your deal pages, and to sign the emails it drafts to buyers, lenders and contractors.</p>
+    <div class="grid4" id="bizForm"></div>
+    <div class="row2" style="margin-top:8px"><button class="primary small" id="bizSave" type="button">Save profile</button><span class="sub" id="bizMsg" role="status"></span></div>
+  </details>
+  <p class="sub" style="margin-top:12px">Pay only when you use them. Members get lower prices. Charges are recorded on your BAP account.</p>
   <div class="table-wrap"><table>
     <thead><tr><th>Service</th><th>What you get</th><th class="num">Your price</th><th class="num">Member</th><th class="num">Non-member</th></tr></thead>
     <tbody id="svcRows"></tbody></table></div>
@@ -501,7 +507,7 @@ async function showApp(user) {
   shownFor = user.id;
   $("auth").classList.add("hidden"); $("app").classList.remove("hidden");
   $("signout").classList.remove("hidden"); $("who").textContent = user.email; $("views").classList.remove("hidden");
-  await loadCounties(); await buildStaticFilters(); await loadSaved(); updateFacets(filters()); initMap();
+  await loadCounties(); await buildStaticFilters(); await loadSaved(); updateFacets(filters()); initMap(); bizNudge();
 }
 $("authSwap").onclick = () => {
   signUp = !signUp;
@@ -585,6 +591,45 @@ const refresh = () => { clearTimeout(timer); timer = setTimeout(() => { state.pa
 document.addEventListener("change", (e) => { if (e.target.closest("#filters") || e.target.id === "sort") refresh(); });
 $("fQ").addEventListener("input", refresh);
 $("fScore").addEventListener("input", () => { $("fScoreVal").textContent = $("fScore").value; refresh(); });
+
+/* ---------- my business profile: fills contracts, deal pages and emails ---------- */
+let bizCache = null;
+async function biz(force) {
+  if (bizCache && !force) return bizCache;
+  const { data } = await sb.rpc("my_business");
+  return (bizCache = data || {});
+}
+function sigText() {
+  const b = bizCache || {};
+  const lines = [b.signer_name ? b.signer_name + (b.signer_title ? ", " + b.signer_title : "") : null, b.business_name || null,
+    [b.phone, b.email].filter(Boolean).join(" · ") || null].filter(Boolean);
+  return lines.length ? "\n\n" + lines.join("\n") : "";
+}
+function contactLine() {
+  const b = bizCache || {};
+  return [b.signer_name || b.business_name, b.phone, b.email].filter(Boolean).join(" · ");
+}
+const BIZ_FIELDS = [["business_name", "Business / buying name (as it goes on contracts) *"], ["signer_name", "Your name (who signs)"], ["signer_title", "Title (e.g. Managing Member)"],
+  ["phone", "Business phone"], ["email", "Business email"], ["address", "Business mailing address"], ["website", "Website"],
+  ["title_company", "Title company you usually close with"], ["earnest_money", "Usual earnest money ($)"], ["inspection_days", "Usual inspection period (days)"],
+  ["assignment_fee", "Usual assignment fee ($)"], ["markets", "Markets you work (cities or counties)"]];
+async function renderBizPanel() {
+  const box = $("bizForm"); const b = await biz(true);
+  box.textContent = "";
+  for (const [k, lab] of BIZ_FIELDS) box.append(el("label", {}, lab, el("input", { "data-k": k, value: b[k] || "" })));
+  $("bizPanel").open = !b.business_name;
+  $("bizSave").onclick = async () => {
+    const p = {}; for (const i of box.querySelectorAll("input[data-k]")) p[i.dataset.k] = i.value.trim();
+    const r = await sb.rpc("save_business", { p });
+    $("bizMsg").textContent = r.error ? "Couldn't save: " + r.error.message : "Saved. Contracts, deal pages and emails will use this.";
+    if (!r.error) { bizCache = r.data; $("bizNudge").classList.add("hidden"); }
+  };
+}
+async function bizNudge() {
+  const b = await biz(true);
+  $("bizNudge").classList.toggle("hidden", !!b.business_name);
+}
+$("bizGo").onclick = () => { setView("svc"); setTimeout(() => { $("bizPanel").open = true; $("bizPanel").scrollIntoView({ block: "start", behavior: "smooth" }); }, 300); };
 
 /* ---------- your own contacts (lenders, contractors...) + Tab 5 contractors + rehab estimate ---------- */
 const CONTACT_LABEL = { lender: "lender", contractor: "contractor", title: "title company", attorney: "attorney" };
@@ -693,9 +738,9 @@ async function renderRehabSection(leadId, dp) {
       el("div", { class: "row2" }, c.phone ? el("a", { href: "tel:" + c.phone, text: c.phone }) : null, c.email ? el("a", { href: "mailto:" + c.email, text: c.email }) : null)));
     const emails = cs.map((c) => c.email).filter(Boolean);
     const copy = el("button", { class: "ghost small", type: "button", text: "Copy scope" });
-    copy.onclick = async () => { try { await navigator.clipboard.writeText(body); copy.textContent = "Copied"; } catch (e) { prompt("Copy:", body); } };
+    copy.onclick = async () => { try { await navigator.clipboard.writeText(body + sigText()); copy.textContent = "Copied"; } catch (e) { prompt("Copy:", body + sigText()); } };
     bidBox.append(el("div", { class: "row2" }, emails.length ? el("a", { class: "primary small", style: "text-decoration:none;padding:6px 12px;border-radius:8px",
-      href: "mailto:?bcc=" + encodeURIComponent(emails.join(",")) + "&subject=" + encodeURIComponent("Bid request: " + (p.address_line || "")) + "&body=" + encodeURIComponent(body),
+      href: "mailto:?bcc=" + encodeURIComponent(emails.join(",")) + "&subject=" + encodeURIComponent("Bid request: " + (p.address_line || "")) + "&body=" + encodeURIComponent(body + sigText()),
       text: "Email " + emails.length + " contractor" + (emails.length === 1 ? "" : "s") }) : null, copy));
   };
   box.append(quick, tbl, totalEl, el("div", { class: "row2" }, save, use, bids, msg), bidBox);
@@ -721,7 +766,7 @@ async function showLenderMatches(leadId, last, box) {
     el("div", { class: "row2" }, l.phone ? el("a", { href: "tel:" + l.phone, text: l.phone }) : null, l.email ? el("a", { href: "mailto:" + l.email, text: l.email }) : null)));
   const emails = ls.map((l) => l.email).filter(Boolean);
   if (emails.length) box.append(el("a", { class: "primary small", style: "text-decoration:none;padding:6px 12px;border-radius:8px;display:inline-block;margin-top:6px",
-    href: "mailto:?bcc=" + encodeURIComponent(emails.join(",")) + "&subject=" + encodeURIComponent("Loan request: " + (p.address_line || "")) + "&body=" + encodeURIComponent(body),
+    href: "mailto:?bcc=" + encodeURIComponent(emails.join(",")) + "&subject=" + encodeURIComponent("Loan request: " + (p.address_line || "")) + "&body=" + encodeURIComponent(body + sigText()),
     text: "Email " + emails.length + " lender" + (emails.length === 1 ? "" : "s") }));
   box.append(el("p", { class: "sub", text: "Tip: open the Lender packet (PDF), save it, and attach it to the email." }));
 }
@@ -801,7 +846,8 @@ async function renderSellSection(leadId, dp, o) {
   const contract = ((deal && deal.contracts) || []).find((c) => c.kind === "purchase" && c.status !== "voided");
   const fee0 = (o && o.fee) || 10000;
   const asking0 = listing ? listing.asking_price : contract && contract.price ? Number(contract.price) + Number(fee0) : o && o.mao ? Math.round(o.mao + fee0) : "";
-  const contact0 = (listing && listing.deck_path) || localStorage.getItem("bapDealContact") || "";
+  await biz();
+  const contact0 = (listing && listing.deck_path) || localStorage.getItem("bapDealContact") || contactLine();
   let listingId = listing ? listing.id : null;
   const f = (id, lab, v) => el("label", {}, lab, el("input", { id, value: v ?? "", inputmode: id === "sContact" || id === "sSummary" ? "text" : "decimal" }));
   box.append(el("div", { class: "grid4" }, f("sAsk", "Asking price to buyers", asking0 ? Math.round(asking0) : ""), f("sArv", "ARV", (listing && listing.arv) || (o && o.arv) || ""),
@@ -847,10 +893,10 @@ async function renderSellSection(leadId, dp, o) {
       ($("sArv").value ? " · ARV " + money(num($("sArv").value)) : "") + ($("sRehab").value ? " · Rehab est. " + money(num($("sRehab").value)) : "") +
       (link ? "\nDetails: " + link : "") + "\n\nI hold a contract on this property and am offering my interest in that contract; I do not own the property.";
     const copy = el("button", { class: "ghost small", type: "button", text: "Copy message" });
-    copy.onclick = async () => { try { await navigator.clipboard.writeText(body); copy.textContent = "Copied"; } catch (e) { prompt("Copy:", body); } };
+    copy.onclick = async () => { try { await navigator.clipboard.writeText(body + sigText()); copy.textContent = "Copied"; } catch (e) { prompt("Copy:", body + sigText()); } };
     mbox.append(el("div", { class: "row2", style: "margin-top:8px" },
       emails.length ? el("a", { class: "primary small", style: "text-decoration:none;padding:6px 12px;border-radius:8px",
-        href: "mailto:?bcc=" + encodeURIComponent(emails.join(",")) + "&subject=" + encodeURIComponent("New deal: " + (p.address_line || "")) + "&body=" + encodeURIComponent(body),
+        href: "mailto:?bcc=" + encodeURIComponent(emails.join(",")) + "&subject=" + encodeURIComponent("New deal: " + (p.address_line || "")) + "&body=" + encodeURIComponent(body + sigText()),
         text: "Email " + emails.length + " matched buyer" + (emails.length === 1 ? "" : "s") }) : null, copy));
   }
   showMatches();
@@ -1202,7 +1248,7 @@ function setView(v) {
   $("lend").classList.toggle("hidden", v !== "lend"); $("vLend").setAttribute("aria-pressed", String(v === "lend")); if (v === "lend") loadLenders();
   $("crew").classList.toggle("hidden", v !== "crew"); $("vCrew").setAttribute("aria-pressed", String(v === "crew")); if (v === "crew") contactsPanel("contractor", $("crewContacts"));
   $("buy").classList.toggle("hidden", v !== "buy"); $("vBuy").setAttribute("aria-pressed", String(v === "buy")); if (v === "buy") { loadBuyers(); if (!$("bForm").childElementCount) buyerForm(null), $("bPanel").open = false; }
-  $("vSvc").setAttribute("aria-pressed", String(v === "svc")); if (v === "svc") loadServices();
+  $("vSvc").setAttribute("aria-pressed", String(v === "svc")); if (v === "svc") { loadServices(); renderBizPanel(); }
   $("vLeads").setAttribute("aria-pressed", String(v === "leads")); $("vPipe").setAttribute("aria-pressed", String(v === "pipe"));
   $("vDeals").setAttribute("aria-pressed", String(v === "deals"));
   if (v === "pipe") loadPipeline();
@@ -1498,8 +1544,9 @@ async function generateDocs(c, leadId, msg) {
   const main = (lib.templates || []).find((t) => t.scenario === sc);
   if (!main) { msg.textContent = "No template for this contract type yet."; return; }
   const addenda = (lib.templates || []).filter((t) => t.addendum && t.applies_to.split(",").includes(c.kind));
-  let buyerName = localStorage.getItem("bapBuyerName") || "";
-  buyerName = prompt("Your buying name as it should appear on the contract (company or person):", buyerName) || "";
+  const B = await biz();
+  let buyerName = B.business_name || localStorage.getItem("bapBuyerName") || "";
+  if (!B.business_name) buyerName = prompt("Your buying name as it should appear on the contract (company or person). Tip: save it once in Services > My business profile.", buyerName) || "";
   if (!buyerName) return;
   try { localStorage.setItem("bapBuyerName", buyerName); } catch (e) { /* storage blocked */ }
   const svc = await servicePrices(); const price = svc.contract_template ? Number(svc.contract_template.my_price) : 0;
@@ -1521,8 +1568,8 @@ async function generateDocs(c, leadId, msg) {
     effective_date: new Date().toLocaleDateString("en-US"), seller_names: seller, buyer_name: buyerName,
     assignee_name: party("end_buyer") || party("partner") || "", property_address: [p.address_line, p.city, (p.state || stateCode), p.zip].filter(Boolean).join(", "),
     county: p.county || "", state_name: (lib.state || {}).name || stateCode, apn: p.apn || "", legal_description: v.legal_description || "",
-    price: fmt(c.price), earnest_money: fmt(c.earnest), title_company: v.title_company || "", closing_date: c.closing || "",
-    inspection_days: v.inspection_days || 10, title_policy_paid_by_seller: titlePaidBySeller, title_policy_paid_by_buyer: "any lender's title policy",
+    price: fmt(c.price), earnest_money: fmt(c.earnest || B.earnest_money), title_company: v.title_company || B.title_company || "", closing_date: c.closing || "",
+    inspection_days: v.inspection_days || B.inspection_days || 10, title_policy_paid_by_seller: titlePaidBySeller, title_policy_paid_by_buyer: "any lender's title policy",
     assignment_fee: fmt(c.fee), assignee_deposit: fmt(c.fee ? Math.max(500, Math.round(Number(c.fee) * 0.1)) : ""), original_contract_date: "",
     option_fee: fmt(v.option_fee), option_term_days: v.option_term_days || "", option_fee_credit: "is",
     split_contract_holder: v.split_contract_holder ?? 50, split_partner: v.split_contract_holder != null ? 100 - Number(v.split_contract_holder) : 50,
