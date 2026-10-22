@@ -607,10 +607,11 @@ function sigText() {
 }
 function contactLine() {
   const b = bizCache || {};
-  return [b.signer_name || b.business_name, b.phone, b.email].filter(Boolean).join(" · ");
+  return [b.signer_name || b.business_name, b.phone, b.email, b.booking_url ? "Book a time: " + b.booking_url : null].filter(Boolean).join(" · ");
 }
 const BIZ_FIELDS = [["business_name", "Business / buying name (as it goes on contracts) *"], ["signer_name", "Your name (who signs)"], ["signer_title", "Title (e.g. Managing Member)"],
   ["phone", "Business phone"], ["email", "Business email"], ["address", "Business mailing address"], ["website", "Website"],
+  ["booking_url", "Booking page link (Google Calendar or Calendly, starts with https://)"],
   ["title_company", "Title company you usually close with"], ["earnest_money", "Usual earnest money ($)"], ["inspection_days", "Usual inspection period (days)"],
   ["assignment_fee", "Usual assignment fee ($)"], ["markets", "Markets you work (cities or counties)"]];
 async function renderBizPanel() {
@@ -906,6 +907,20 @@ async function valuationCompsFor() {
   return (avm.comps || []).slice(0, 8).map((c) => ({ address: c.address, price: c.price, sqft: c.sqft, miles: c.miles }));
 }
 
+// contact text on a deal page: https links become buttons ("Book a time" for booking pages), everything else stays text
+function linkifyContact(text) {
+  const out = [];
+  for (const part of String(text).split(/(https:\/\/[^\s·]+)/)) {
+    if (!part) continue;
+    if (/^https:\/\//.test(part)) {
+      const booking = /calendar\.google\.com\/calendar\/appointments|calendar\.app\.google|calendly\.com/.test(part);
+      out.push(el("a", { href: part, target: "_blank", rel: "noopener", class: booking ? "primary small" : "",
+        style: booking ? "display:inline-block;margin:6px 0;padding:8px 14px;border-radius:8px;text-decoration:none" : "", text: booking ? "Book a time" : part }));
+    } else out.push(part.replace(/Book a time:\s*$/, ""));
+  }
+  return out;
+}
+
 // public deal page: app.buybap.com/#deal/<slug>, no sign-in
 async function renderPublicDeal(slug) {
   for (const id of ["auth", "app", "pipe", "deals", "svc", "lend", "buy", "crew", "views"]) if ($(id)) $(id).classList.add("hidden");
@@ -929,7 +944,7 @@ async function renderPublicDeal(slug) {
     el("div", { class: "mao", style: "margin:12px 0", text: money(data.asking_price) }),
     t, data.summary ? el("p", { style: "white-space:pre-wrap;margin-top:12px", text: data.summary }) : null,
     comps ? el("h3", { text: "Comparable sales" }) : null, comps,
-    data.contact ? el("div", { class: "panel" }, el("b", { text: "Interested? " }), data.contact) : null,
+    data.contact ? el("div", { class: "panel" }, el("b", { text: "Interested? " }), ...linkifyContact(data.contact)) : null,
     el("p", { class: "note", style: "margin-top:16px", text: (tx ? "Notice (Texas Occupations Code §1101.0045): " : "Notice: ") +
       "The seller of this listing holds an equitable interest in a contract to buy this property and is offering that contract interest, not the property itself. The seller of this listing does not hold legal title to the property and is not the owner's agent. Buyers should verify all figures and inspect the property." }),
     el("p", { class: "sub", style: "margin-top:24px", text: "Shared with BAP" }));
