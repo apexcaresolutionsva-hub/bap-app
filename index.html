@@ -149,6 +149,10 @@ main.results { position: relative; padding: 0; }
 .map-hint { position: absolute; top: 112px; left: 50%; transform: translateX(-50%); z-index: 3; background: #16202b; color: #fff; border-radius: 999px;
   padding: 6px 6px 6px 14px; font-size: 13px; display: flex; gap: 8px; align-items: center; box-shadow: 0 2px 10px rgba(10, 20, 35, .25); white-space: nowrap; }
 .map-hint.hidden { display: none; }
+/* contract + deal forms: long option names must not push the page wider than the phone */
+select, input, textarea { max-width: 100%; box-sizing: border-box; }
+.note, .hint, p { overflow-wrap: anywhere; }
+.maplibregl-popup-content .mapcard { padding: 2px; }
 #heatBtn[aria-pressed="true"] { background: #16202b; color: #fff; }
 .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
 .count { font-size: 20px; font-weight: 700; }
@@ -284,10 +288,10 @@ tbody tr:last-child td { border-bottom: 0; }
     <h2>County</h2>
     <div class="checks" id="fCounties"></div>
     <h2>Lead type</h2>
-    <p class="hint">Shows leads with any checked type.</p>
+    <p class="hint">Narrows the list: a lead must have every checked type. Numbers show how many would be left.</p>
     <div class="checks" id="fKinds"></div>
     <h2>Owner</h2>
-    <p class="hint">Shows owners matching any checked box. Owner details cover Dallas County so far; Harris is coming.</p>
+    <p class="hint">Narrows the list: the owner must match every checked box. Owner details are only available in some counties so far.</p>
     <div class="checks" id="fFlags"></div>
     <h2>Auction date</h2>
     <select id="fSale">
@@ -315,7 +319,7 @@ tbody tr:last-child td { border-bottom: 0; }
       <div id="map" role="region" aria-label="Map of leads"></div>
       <div class="map-top">
         <button class="mapbtn filters-toggle" id="mapFilters" type="button">Filters</button>
-        <input type="search" id="mapQ" class="mapsearch" placeholder="Address, street, ZIP or owner" aria-label="Search the map">
+        <input type="search" id="mapQ" class="mapsearch" placeholder="Any address (driving for dollars), ZIP or owner" aria-label="Search the map">
         <select class="mapbtn" id="marketSel" aria-label="Jump to market">
           <option value="">Markets…</option>
           <option value="dfw">Dallas–Fort Worth</option>
@@ -1069,9 +1073,10 @@ $("mapFilters").onclick = () => { $("filters").classList.add("open"); $("scrim")
 // the map search box drives the same text filter, then flies to what it found
 $("mapQ").addEventListener("keydown", async (e) => {
   if (e.key !== "Enter" || !mapReady) return;
+  if (looksLikeAddress($("mapQ").value)) { e.preventDefault(); $("mapQ").blur(); await showAddressCard($("mapQ").value.trim()); return; }
   $("fQ").value = $("mapQ").value.trim();
   const f = filters();
-  const { data } = await sb.rpc("lead_map", { ...mapArgs(f), p_west: -107, p_south: 25, p_east: -93, p_north: 37, p_zoom: 18, p_max_pins: 200 });
+  const { data } = await sb.rpc("lead_map", { ...mapArgs(f), p_west: -125, p_south: 24, p_east: -66, p_north: 50, p_zoom: 18, p_max_pins: 200 });
   const pts = (data && data.mode === "pins" ? data.items : []) || [];
   if (pts.length === 1) leadMap.flyTo({ center: [pts[0].lng, pts[0].lat], zoom: 17 });
   else if (pts.length > 1) {
@@ -1081,6 +1086,76 @@ $("mapQ").addEventListener("keydown", async (e) => {
   updateFacets(f);
 });
 $("fQ").addEventListener("input", () => { $("mapQ").value = $("fQ").value; });
+
+/* ---------- driving for dollars: type ANY address -> fly there, pin it, property card with links + add to pipeline ---------- */
+const US_STATES = { alabama: "AL", alaska: "AK", arizona: "AZ", arkansas: "AR", california: "CA", colorado: "CO", connecticut: "CT", delaware: "DE",
+  "district of columbia": "DC", florida: "FL", georgia: "GA", hawaii: "HI", idaho: "ID", illinois: "IL", indiana: "IN", iowa: "IA", kansas: "KS",
+  kentucky: "KY", louisiana: "LA", maine: "ME", maryland: "MD", massachusetts: "MA", michigan: "MI", minnesota: "MN", mississippi: "MS",
+  missouri: "MO", montana: "MT", nebraska: "NE", nevada: "NV", "new hampshire": "NH", "new jersey": "NJ", "new mexico": "NM", "new york": "NY",
+  "north carolina": "NC", "north dakota": "ND", ohio: "OH", oklahoma: "OK", oregon: "OR", pennsylvania: "PA", "rhode island": "RI",
+  "south carolina": "SC", "south dakota": "SD", tennessee: "TN", texas: "TX", utah: "UT", vermont: "VT", virginia: "VA", washington: "WA",
+  "west virginia": "WV", wisconsin: "WI", wyoming: "WY" };
+const looksLikeAddress = (q) => /^\s*\d+[A-Za-z]?\s+[A-Za-z0-9]/.test(q || "");
+function stateCode(s) { if (!s) return ""; const t = String(s).trim(); return t.length === 2 ? t.toUpperCase() : (US_STATES[t.toLowerCase()] || ""); }
+function parsePhoton(f, typed) {
+  if (!f || !f.geometry) return null;
+  const p = f.properties || {}, [lng, lat] = f.geometry.coordinates;
+  const typedStreet = String(typed || "").split(",")[0].trim();
+  const street = p.housenumber ? [p.housenumber, p.street].filter(Boolean).join(" ") : (typedStreet || p.street || "");
+  const city = p.city || p.town || p.village || p.district || "";
+  const st = stateCode(p.state);
+  return { lat, lng, street, city, state: st, zip: (p.postcode || "").slice(0, 5), county: (p.county || "").replace(/\s+County$/i, ""),
+    exact: !!p.housenumber, label: [street, city, [st, (p.postcode || "").slice(0, 5)].filter(Boolean).join(" ")].filter(Boolean).join(", ") };
+}
+async function geocodeAddress(q) {
+  try {
+    const r = await fetch("https://photon.komoot.io/api/?limit=1&lang=en&q=" + encodeURIComponent(q));
+    const j = await r.json();
+    return parsePhoton((j.features || [])[0], q);
+  } catch (e) { return null; }
+}
+let d4dMarker = null, d4dPopup = null;
+async function showAddressCard(q) {
+  const a = await geocodeAddress(q);
+  if (!a) { $("mapCount").textContent = "Couldn't find that address. Try adding the city and state."; return; }
+  leadMap.flyTo({ center: [a.lng, a.lat], zoom: 17 });
+  if (d4dMarker) d4dMarker.remove();
+  d4dMarker = new maplibregl.Marker({ color: "#1d3557" }).setLngLat([a.lng, a.lat]).addTo(leadMap);
+  // is it already a BAP lead? look in a tiny box around the point
+  const d = 0.0007;
+  const { data } = await sb.rpc("lead_map", { p_west: a.lng - d, p_south: a.lat - d, p_east: a.lng + d, p_north: a.lat + d, p_zoom: 18, p_max_pins: 5 });
+  const hit = (data && data.mode === "pins" ? data.items : [])[0];
+  const box = el("div", { class: "mapcard", style: "max-width:270px" });
+  box.append(el("b", { text: a.label || q }));
+  if (!a.exact) box.append(el("div", { class: "sub", text: "Approximate location (street-level match)." }));
+  if (hit) box.append(el("div", { class: "note", style: "margin:6px 0", text: "BAP lead: " + (hit.k || []).map((k) => KINDS[k] || k).join(", ") +
+    (hit.v ? " · county value " + money(hit.v) : "") + (hit.o ? " · owner " + hit.o : "") }));
+  else box.append(el("div", { class: "sub", style: "margin:6px 0", text: "Not on BAP's distress lists yet." }));
+  const links = el("div", { class: "row2" },
+    el("a", { href: "https://www.zillow.com/homes/" + encodeURIComponent(a.label || q) + "_rb/", target: "_blank", rel: "noopener", text: "Zillow" }),
+    el("a", { href: "https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=" + a.lat + "," + a.lng, target: "_blank", rel: "noopener", text: "Street View" }),
+    el("a", { href: "https://www.redfin.com/search#query=" + encodeURIComponent(a.label || q), target: "_blank", rel: "noopener", text: "Redfin" }));
+  box.append(links);
+  const msg = el("div", { class: "sub", role: "status" });
+  if (hit) {
+    const open = el("button", { class: "primary small", type: "button", text: "Open lead" });
+    open.onclick = () => openDetail(hit.id);
+    box.append(el("div", { class: "row2", style: "margin-top:8px" }, open));
+  } else {
+    const add = el("button", { class: "primary small", type: "button", text: "Add to my pipeline" });
+    add.onclick = async () => {
+      add.disabled = true; msg.textContent = "Adding…";
+      const r = await sb.rpc("add_my_property", { p: { address: a.street, city: a.city, zip: a.zip, state: a.state || "TX", county: a.county, note: "Driving for dollars" } });
+      if (r.error) { msg.textContent = "Couldn't add: " + r.error.message; add.disabled = false; return; }
+      msg.textContent = "Added. Opening it: use Get value estimate, Skip trace or AI analysis there.";
+      if (typeof loadPipeline === "function") loadPipeline();
+      openDetail(r.data.property_id);
+    };
+    box.append(el("div", { class: "row2", style: "margin-top:8px" }, add), msg);
+  }
+  if (d4dPopup) d4dPopup.remove();
+  d4dPopup = new maplibregl.Popup({ offset: 28, maxWidth: "300px" }).setLngLat([a.lng, a.lat]).setDOMContent(box).addTo(leadMap);
+}
 
 /* ---------- market switcher: jump the map to a metro; remembered on this device ---------- */
 const MARKETS = {
@@ -1512,8 +1587,9 @@ async function renderDealPanel(leadId, propertyId, dp, pp) {
   renderModelSection(leadId, dp, o);
   // contracts
   dp.append(el("h3", { text: "Contracts", style: "margin-top:16px" }));
-  dp.append(el("p", { class: "note", text: "Texas law requires a written notice to the seller and to any end buyer that you are selling only " +
-    "your interest in the purchase contract and do not hold title. BAP won't let a Texas contract be marked sent or signed until that's recorded." }));
+  const txNote = el("p", { class: "note", text: "Texas law requires a written notice to the seller and to any end buyer that you are selling only " +
+    "your interest in the purchase contract and do not hold title. BAP won't let a Texas contract be marked sent or signed until that's recorded." });
+  dp.append(txNote);
   for (const c of data.contracts || []) dp.append(contractRow(c, leadId, propertyId, dp, pp, data.org));
   // new contract form: pick the scenario and the state; the state's wholesaling rule shows underneath
   const SCEN = [["wholesale_purchase", "purchase", "Wholesale purchase (assignable): you buy from the seller"],
@@ -1557,6 +1633,7 @@ async function renderDealPanel(leadId, propertyId, dp, pp) {
       none_found: "No specific wholesaling statute found for " + (s0.name || st.value) + ". General real estate law still applies." };
     rule.textContent = (msgs[s0.rule] || "") + (s0.note ? " " + s0.note : "");
     rule.style.color = s0.rule === "license" ? "var(--sale)" : "";
+    txNote.classList.toggle("hidden", st.value !== "TX");
   };
   st.onchange = showRule;
   sb.rpc("list_states").then(({ data }) => {
