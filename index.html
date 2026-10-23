@@ -1107,14 +1107,30 @@ function parsePhoton(f, typed) {
   return { lat, lng, street, city, state: st, zip: (p.postcode || "").slice(0, 5), county: (p.county || "").replace(/\s+County$/i, ""),
     exact: !!p.housenumber, label: [street, city, [st, (p.postcode || "").slice(0, 5)].filter(Boolean).join(" ")].filter(Boolean).join(", ") };
 }
+function censusGeocode(q) {
+  return new Promise((resolve) => {
+    const cb = "__bapCensus" + Date.now() + Math.floor(Math.random() * 1e6);
+    const s = document.createElement("script");
+    const done = (v) => { delete window[cb]; s.remove(); resolve(v); };
+    window[cb] = (d) => done((((d || {}).result || {}).addressMatches || [])[0] || null);
+    s.onerror = () => done(null);
+    s.src = "https://geocoding.geo.census.gov/geocoder/geographies/onelineaddress?address=" + encodeURIComponent(q) +
+      "&benchmark=Public_AR_Current&vintage=Current_Current&layers=82,80&format=jsonp&callback=" + cb;
+    document.head.append(s);
+    setTimeout(() => window[cb] && done(null), 12000);
+  });
+}
 async function geocodeAddress(q) {
-  // 1) US Census Bureau (authoritative) through BAP's database
+  // 1) US Census Bureau geocoder (authoritative, every US street address), called directly via JSONP
   try {
-    const { data } = await sb.rpc("geocode_address", { q });
-    if (data && data.lat) {
-      const label = [data.street, data.city, [data.state, data.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ");
-      return { lat: data.lat, lng: data.lng, street: data.street, city: data.city, state: data.state, zip: data.zip,
-        county: data.county || "", exact: true, label };
+    const m = await censusGeocode(q);
+    if (m) {
+      const parts = String(m.matchedAddress || "").split(", ");          // "5512 SOMERVILLE DR, FRISCO, TX, 75036"
+      const tc = (x) => String(x || "").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+      const street = tc(parts[0]), city = tc(parts[1]), state = (parts[2] || "").toUpperCase(), zip = parts[3] || "";
+      const county = (((m.geographies || {}).Counties || [])[0] || {}).BASENAME || "";
+      return { lat: m.coordinates.y, lng: m.coordinates.x, street, city, state, zip, county, exact: true,
+        label: [street, city, [state, zip].filter(Boolean).join(" ")].filter(Boolean).join(", ") };
     }
   } catch (e) { /* fall through to the backup */ }
   // 2) backup map search; reject results on a different street than the one typed
