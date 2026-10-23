@@ -268,6 +268,7 @@ tbody tr:last-child td { border-bottom: 0; }
   </nav>
   <span class="spacer"></span>
   <span class="who" id="who"></span>
+  <button id="practiceBtn" class="hidden" type="button" title="Try every task safely: nothing is saved, sent or charged">Practice mode</button>
   <button id="signout" class="hidden" type="button">Sign out</button>
 </header>
 
@@ -482,6 +483,91 @@ tbody tr:last-child td { border-bottom: 0; }
 const SUPABASE_URL = "https://rpcdrgzcaarggupctede.supabase.co";
 const SUPABASE_KEY = "sb_publishable_qyI3EzhYghqCmRnhu41ucg_lhzhufqt";   // publishable: safe in a browser, data protected by row-level security
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+/* ---------- PRACTICE MODE (sandbox): try every task; reads are real, nothing is saved, sent or charged ---------- */
+const PRACTICE = (() => { try { return location.hash === "#practice" || sessionStorage.getItem("bapPractice") === "1"; } catch (e) { return location.hash === "#practice"; } })();
+const PRACTICE_READS = new Set(["lead_map", "lead_search", "lead_facets", "lead_detail", "lead_counties", "lead_kind_counts", "lead_models",
+  "my_deal_models", "match_contacts", "deal_for_lead", "deal_for_listing", "contract_library", "contract_vault", "rehab_for_lead", "public_deal",
+  "pipeline_list", "pipeline_lead", "my_usage", "my_services", "my_deal_targets", "my_business", "match_my_buyers", "map_coverage",
+  "list_states", "directory_top", "property_valuation", "geocode_address"]);
+function practiceToast(text) {
+  let t = document.getElementById("practiceToast");
+  if (!t) { t = document.createElement("div"); t.id = "practiceToast"; t.setAttribute("role", "status");
+    t.style.cssText = "position:fixed;left:50%;bottom:84px;transform:translateX(-50%);z-index:9999;max-width:92vw;background:#5b3a00;color:#fff;padding:10px 14px;border-radius:10px;font-size:14px;box-shadow:0 4px 18px rgba(0,0,0,.25)";
+    document.body.append(t); }
+  t.textContent = text; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => { t.style.display = "none"; }, 4200);
+}
+function practicePreview(title, body) {
+  const wrap = document.createElement("div");
+  wrap.style.cssText = "position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px";
+  const card = document.createElement("div");
+  card.style.cssText = "background:var(--card,#fff);color:inherit;max-width:560px;width:100%;max-height:80vh;overflow:auto;border-radius:12px;padding:16px";
+  const h = document.createElement("b"); h.textContent = title;
+  const p = document.createElement("p"); p.className = "sub"; p.textContent = "Practice mode: this would open in your mail or phone app. Nothing was sent.";
+  const pre = document.createElement("pre"); pre.style.cssText = "white-space:pre-wrap;font-size:13px"; pre.textContent = body;
+  const ok = document.createElement("button"); ok.className = "primary small"; ok.type = "button"; ok.textContent = "Close";
+  ok.onclick = () => wrap.remove(); wrap.onclick = (e) => { if (e.target === wrap) wrap.remove(); };
+  card.append(h, p, pre, ok); wrap.append(card); document.body.append(wrap);
+}
+function practiceLinkPreview(href) {
+  try {
+    const u = new URL(href);
+    const to = decodeURIComponent(u.pathname || ""); const q = u.searchParams;
+    if (u.protocol === "mailto:") return practicePreview("Email preview", ["To: " + (to || "(you)"), q.get("bcc") ? "BCC: " + q.get("bcc") : null,
+      "Subject: " + (q.get("subject") || ""), "", q.get("body") || ""].filter((x) => x !== null).join("\n"));
+    return practicePreview(u.protocol === "tel:" ? "Call preview" : "Text preview", to + (q.get("body") ? "\n\n" + q.get("body") : ""));
+  } catch (e) { practicePreview("Preview", href); }
+}
+// open mailto:/tel:/sms: links (practice mode shows a preview instead)
+function openExternal(url) { if (PRACTICE) practiceLinkPreview(url); else location.href = url; }
+const PRACTICE_SAMPLES = {
+  valuation: () => ({ data: { value: 185000, low: 171000, high: 199000, rent: 1650, rent_low: 1500, rent_high: 1800, at: new Date().toISOString(), cached: false, practice: true }, error: null }),
+  "ai-analysis": () => ({ data: { price: null, at: new Date().toISOString(), result: {
+    verdict: "pursue", headline: "Practice sample: solid flip if repairs stay near $35k",
+    motivation: "Sample: tax-delinquent 3 years and absentee owner, so likely motivated.",
+    arv: { low: 180000, high: 200000, basis: "Sample comps within half a mile" }, repairs: { low: 28000, high: 42000, basis: "Sample: roof, kitchen, flooring" },
+    offer: { open: 98000, max: 112000, basis: "70% of ARV minus repairs and your fee" }, exit: "Wholesale to a flipper or flip yourself", timing: "Sample: move within 30 days" } } , error: null }),
+  skiptrace: () => ({ data: null, error: { message: "Practice mode: a real skip trace returns the owner's phone numbers and emails (about $0.10 when found). Nothing was charged.",
+    context: { json: async () => ({ error: "Practice mode: a real skip trace returns the owner's phone numbers and emails (about $0.10 when found). Nothing was charged." }) } } }),
+};
+(function installPractice() {
+  if (!PRACTICE) return;
+  try { sessionStorage.setItem("bapPractice", "1"); } catch (e) { /* private mode */ }
+  const realRpc = sb.rpc.bind(sb), realFrom = sb.from.bind(sb), realInvoke = sb.functions.invoke.bind(sb.functions);
+  const fakeChain = () => new Proxy(function () {}, {
+    get: (_t, prop) => prop === "then" ? (res, rej) => Promise.resolve({ data: null, error: null }).then(res, rej) : () => fakeChain(),
+  });
+  sb.rpc = (fn, args, opts) => {
+    if (PRACTICE_READS.has(fn)) return realRpc(fn, args, opts);
+    practiceToast("Practice mode: \u201c" + fn.replace(/_/g, " ") + "\u201d was simulated. Nothing was saved.");
+    return Promise.resolve({ data: { ok: true, practice: true, id: null, property_id: null }, error: null });
+  };
+  sb.from = (table) => {
+    const q = realFrom(table);
+    for (const m of ["insert", "update", "upsert", "delete"])
+      q[m] = () => { practiceToast("Practice mode: change to \u201c" + table.replace(/_/g, " ") + "\u201d was simulated. Nothing was saved."); return fakeChain(); };
+    return q;
+  };
+  sb.functions.invoke = async (name, opts) => {
+    const sample = PRACTICE_SAMPLES[name];
+    practiceToast("Practice mode: \u201c" + name + "\u201d used sample results. Nothing was charged.");
+    return sample ? sample() : { data: { practice: true }, error: null };
+  };
+  // mail / phone / text links show a preview instead of opening apps
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest && e.target.closest('a[href^="mailto:"], a[href^="tel:"], a[href^="sms:"]');
+    if (a) { e.preventDefault(); practiceLinkPreview(a.getAttribute("href")); }
+  }, true);
+  const bar = document.createElement("div");
+  bar.id = "practiceBar"; bar.setAttribute("role", "region"); bar.setAttribute("aria-label", "Practice mode");
+  bar.style.cssText = "position:sticky;top:0;z-index:9998;background:#b8860b;color:#fff;padding:8px 12px;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;font-weight:700;font-size:14px";
+  const txt = document.createElement("span"); txt.textContent = "PRACTICE MODE: real leads, but nothing is saved, sent or charged.";
+  const exit = document.createElement("button"); exit.type = "button"; exit.className = "small"; exit.textContent = "Exit practice mode";
+  exit.style.cssText = "background:#fff;color:#5b3a00;border:0;border-radius:8px;padding:4px 10px;font-weight:700;cursor:pointer";
+  exit.onclick = () => { try { sessionStorage.removeItem("bapPractice"); } catch (e) { /* ignore */ } location.replace(location.pathname); };
+  bar.append(txt, exit); document.body.prepend(bar);
+})();
+function enterPractice() { try { sessionStorage.setItem("bapPractice", "1"); } catch (e) { /* ignore */ } location.replace(location.pathname + "#practice"); location.reload(); }
+
 const PAGE = 100;
 // phones show table rows as cards: give every cell its column name as a small label
 new MutationObserver(() => {
@@ -521,13 +607,13 @@ let state = { page: 0, total: 0, rows: [] };
 let signUp = false;
 
 /* ---------- auth ---------- */
-function showAuth() { $("auth").classList.remove("hidden"); $("app").classList.add("hidden"); $("pipe").classList.add("hidden"); $("deals").classList.add("hidden"); $("svc").classList.add("hidden"); $("lend").classList.add("hidden"); $("buy").classList.add("hidden"); $("crew").classList.add("hidden"); $("views").classList.add("hidden"); $("signout").classList.add("hidden"); $("who").textContent = ""; }
+function showAuth() { $("auth").classList.remove("hidden"); $("app").classList.add("hidden"); $("pipe").classList.add("hidden"); $("deals").classList.add("hidden"); $("svc").classList.add("hidden"); $("lend").classList.add("hidden"); $("buy").classList.add("hidden"); $("crew").classList.add("hidden"); $("views").classList.add("hidden"); $("signout").classList.add("hidden"); $("practiceBtn").classList.add("hidden"); $("who").textContent = ""; }
 let shownFor = null;
 async function showApp(user) {
   if (shownFor === user.id) return;          // sign-in fires more than one auth event; build the screen once
   shownFor = user.id;
   $("auth").classList.add("hidden"); $("app").classList.remove("hidden");
-  $("signout").classList.remove("hidden"); $("who").textContent = user.email; $("views").classList.remove("hidden");
+  $("signout").classList.remove("hidden"); $("practiceBtn").classList.toggle("hidden", PRACTICE); $("practiceBtn").onclick = enterPractice; $("who").textContent = user.email; $("views").classList.remove("hidden");
   await loadCounties(); await buildStaticFilters(); await loadSaved(); updateFacets(filters()); initMap(); bizNudge();
 }
 $("authSwap").onclick = () => {
@@ -2280,8 +2366,8 @@ async function loanPackageForm(mount, lenders) {
   mail.onclick = () => {
     const subj = "Loan request: " + (v("address") || "investment property");
     // BCC so lenders don't see each other; To is your own address when your business profile has one
-    location.href = "mailto:" + encodeURIComponent((bizCache || {}).email || "") + "?bcc=" + encodeURIComponent(emails.join(",")) +
-      "&subject=" + encodeURIComponent(subj) + "&body=" + encodeURIComponent(body());
+    openExternal("mailto:" + encodeURIComponent((bizCache || {}).email || "") + "?bcc=" + encodeURIComponent(emails.join(",")) +
+      "&subject=" + encodeURIComponent(subj) + "&body=" + encodeURIComponent(body()));
   };
   const copy = el("button", { class: "ghost small", type: "button", text: "Copy package" });
   copy.onclick = async () => { try { await navigator.clipboard.writeText(body()); copy.textContent = "Copied"; } catch (e) { prompt("Copy", body()); } };
