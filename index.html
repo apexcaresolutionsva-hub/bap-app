@@ -327,6 +327,7 @@ tbody tr:last-child td { border-bottom: 0; }
           <option value="orl">Orlando, FL</option>
           <option value="nola">New Orleans, LA</option>
           <option value="mont">Montgomery County, MD</option>
+          <option value="balt">Baltimore, MD</option>
         </select>
         <button class="mapbtn" id="drawBtn" type="button">Draw area</button>
         <button class="mapbtn" id="heatBtn" type="button" aria-pressed="false">Heat map</button>
@@ -1091,6 +1092,7 @@ const MARKETS = {
   orl: { name: "Orlando, FL", b: [[-81.5, 28.4], [-81.2, 28.65]] },
   nola: { name: "New Orleans, LA", b: [[-90.15, 29.9], [-89.9, 30.07]] },
   mont: { name: "Montgomery County, MD", b: [[-77.5, 38.93], [-76.88, 39.36]] },
+  balt: { name: "Baltimore, MD", b: [[-76.72, 39.19], [-76.52, 39.38]] },
 };
 $("marketSel").onchange = () => {
   const m = MARKETS[$("marketSel").value];
