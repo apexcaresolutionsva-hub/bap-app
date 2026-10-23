@@ -316,6 +316,13 @@ tbody tr:last-child td { border-bottom: 0; }
       <div class="map-top">
         <button class="mapbtn filters-toggle" id="mapFilters" type="button">Filters</button>
         <input type="search" id="mapQ" class="mapsearch" placeholder="Address, street, ZIP or owner" aria-label="Search the map">
+        <select class="mapbtn" id="marketSel" aria-label="Jump to market">
+          <option value="">Markets…</option>
+          <option value="dfw">Dallas–Fort Worth</option>
+          <option value="hou">Houston</option>
+          <option value="sat">San Antonio</option>
+          <option value="hr">Hampton Roads, VA</option>
+        </select>
         <button class="mapbtn" id="drawBtn" type="button">Draw area</button>
         <button class="mapbtn" id="heatBtn" type="button" aria-pressed="false">Heat map</button>
       </div>
@@ -1007,8 +1014,10 @@ function initMap() {
   const leg = $("mapLegend");
   for (const k of ["pre_foreclosure", "tax_delinquent", "tax_sale", "code_violation", "owner"])
     leg.append(el("span", {}, el("i", { style: "background:" + KIND_COLORS[k] }), k === "owner" ? "Owner signals" : KINDS[k]));
+  const startMarket = MARKETS[(() => { try { return localStorage.getItem("bapMarket"); } catch (e) { return null; } })() || ""];
   leadMap = new maplibregl.Map({ container: "map", style: "https://tiles.openfreemap.org/styles/liberty",
-    center: [-96.95, 32.82], zoom: 8.3, attributionControl: { compact: true } });
+    center: [-96.95, 32.82], zoom: 8.3, attributionControl: { compact: true },
+    ...(startMarket ? { bounds: startMarket.b, fitBoundsOptions: { padding: 20 } } : {}) });
   leadMap.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
   leadMap.addControl(new maplibregl.GeolocateControl({ trackUserLocation: false }), "bottom-right");
   leadMap.on("load", () => {
@@ -1065,6 +1074,21 @@ $("mapQ").addEventListener("keydown", async (e) => {
   updateFacets(f);
 });
 $("fQ").addEventListener("input", () => { $("mapQ").value = $("fQ").value; });
+
+/* ---------- market switcher: jump the map to a metro; remembered on this device ---------- */
+const MARKETS = {
+  dfw: { name: "Dallas–Fort Worth", b: [[-97.65, 32.45], [-96.4, 33.3]] },
+  hou: { name: "Houston", b: [[-95.95, 29.4], [-94.95, 30.2]] },
+  sat: { name: "San Antonio", b: [[-98.8, 29.2], [-98.2, 29.75]] },
+  hr: { name: "Hampton Roads, VA", b: [[-76.75, 36.6], [-75.95, 37.15]] },
+};
+$("marketSel").onchange = () => {
+  const m = MARKETS[$("marketSel").value];
+  if (!m) return;
+  try { localStorage.setItem("bapMarket", $("marketSel").value); } catch (e) { /* private mode */ }
+  if (leadMap) leadMap.fitBounds(m.b, { padding: 20, duration: 900 });
+};
+try { const k = localStorage.getItem("bapMarket"); if (k && MARKETS[k]) $("marketSel").value = k; } catch (e) { /* ignore */ }
 
 /* ---------- draw an area on the map + heat map (PropStream-style) ---------- */
 let drawArea = null, drawing = null, heatOn = false;
