@@ -1108,10 +1108,24 @@ function parsePhoton(f, typed) {
     exact: !!p.housenumber, label: [street, city, [st, (p.postcode || "").slice(0, 5)].filter(Boolean).join(" ")].filter(Boolean).join(", ") };
 }
 async function geocodeAddress(q) {
+  // 1) US Census Bureau (authoritative) through BAP's database
+  try {
+    const { data } = await sb.rpc("geocode_address", { q });
+    if (data && data.lat) {
+      const label = [data.street, data.city, [data.state, data.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+      return { lat: data.lat, lng: data.lng, street: data.street, city: data.city, state: data.state, zip: data.zip,
+        county: data.county || "", exact: true, label };
+    }
+  } catch (e) { /* fall through to the backup */ }
+  // 2) backup map search; reject results on a different street than the one typed
   try {
     const r = await fetch("https://photon.komoot.io/api/?limit=1&lang=en&q=" + encodeURIComponent(q));
     const j = await r.json();
-    return parsePhoton((j.features || [])[0], q);
+    const f = (j.features || [])[0];
+    const word = (String(q).match(/^\s*\d+[A-Za-z]?\s+(?:[NSEW]\.?\s+)?([A-Za-z0-9]+)/) || [])[1];
+    const got = ((f && f.properties && (f.properties.street || f.properties.name)) || "").toLowerCase();
+    if (f && word && got && !got.includes(word.toLowerCase())) return null;
+    return parsePhoton(f, q);
   } catch (e) { return null; }
 }
 let d4dMarker = null, d4dPopup = null;
