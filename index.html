@@ -427,6 +427,7 @@ tbody tr:last-child td { border-bottom: 0; }
     <div class="grid4" id="lTgtForm"></div>
     <div class="row2" style="margin-top:8px"><button class="primary small" type="button" id="lTgtSave">Save targets</button><span class="sub" id="lTgtMsg" role="status"></span></div>
   </details>
+  <div id="lendFinder" style="margin-top:18px"></div>
   <h3 style="margin-top:18px">Your lenders</h3>
   <p class="sub" style="margin-top:-4px">Add the lenders you work with (loan types and areas). Inside any deal, Deal numbers shows which of them fit and drafts the email for you.</p>
   <div id="lendContacts"></div>
@@ -435,6 +436,7 @@ tbody tr:last-child td { border-bottom: 0; }
 <section class="pipe hidden" id="crew" aria-label="Contractors">
   <div class="toolbar"><span class="count">Contractors</span></div>
   <p class="sub" style="margin-top:-6px">Your own contractors: their trades, the areas they work, license and insurance. Build a rehab estimate inside any deal and BAP shows which of your contractors fit the job, with a ready-to-send bid request.</p>
+  <div id="crewFinder"></div>
   <div id="crewContacts"></div>
 </section>
 
@@ -551,9 +553,10 @@ $("signout").onclick = () => { shownFor = null; sb.auth.signOut(); };
 sb.auth.onAuthStateChange((_evt, session) => {
   const deal = (location.hash.match(/^#deal\/([a-z0-9]+)/) || [])[1];
   if (deal) { renderPublicDeal(deal); return; }            // public deal pages need no sign-in
+  if (location.hash === "#join") { renderJoin(); return; }  // contractors / lenders list themselves, no sign-in
   session ? showApp(session.user) : showAuth();
 });
-window.addEventListener("hashchange", () => { if (/^#deal\//.test(location.hash)) location.reload(); });
+window.addEventListener("hashchange", () => { if (/^#deal\//.test(location.hash) || location.hash === "#join") location.reload(); });
 
 /* ---------- filters ---------- */
 async function loadCounties() {
@@ -1406,7 +1409,7 @@ function setView(v) {
   $("app").classList.toggle("hidden", v !== "leads"); $("pipe").classList.toggle("hidden", v !== "pipe");
   $("deals").classList.toggle("hidden", v !== "deals"); $("svc").classList.toggle("hidden", v !== "svc");
   $("lend").classList.toggle("hidden", v !== "lend"); $("vLend").setAttribute("aria-pressed", String(v === "lend")); if (v === "lend") loadLenders();
-  $("crew").classList.toggle("hidden", v !== "crew"); $("vCrew").setAttribute("aria-pressed", String(v === "crew")); if (v === "crew") contactsPanel("contractor", $("crewContacts"));
+  $("crew").classList.toggle("hidden", v !== "crew"); $("vCrew").setAttribute("aria-pressed", String(v === "crew")); if (v === "crew") { proFinder("contractor", $("crewFinder")); contactsPanel("contractor", $("crewContacts")); }
   $("buy").classList.toggle("hidden", v !== "buy"); $("vBuy").setAttribute("aria-pressed", String(v === "buy")); if (v === "buy") { loadBuyers(); if (!$("bForm").childElementCount) buyerForm(null), $("bPanel").open = false; }
   $("vSvc").setAttribute("aria-pressed", String(v === "svc")); if (v === "svc") { loadServices(); renderBizPanel(); }
   $("vLeads").setAttribute("aria-pressed", String(v === "leads")); $("vPipe").setAttribute("aria-pressed", String(v === "pipe"));
@@ -2149,6 +2152,189 @@ function renderDealViz(box, i, r, T, avm) {
   if (i.strategy === "flip" ? i.arv && i.rehab : i.rent) box.append(sectionTitle(i.strategy === "flip" ? "What if the ARV or rehab is off?" : "What if the rent or rate is off?"), whatIf(i, T));
 }
 
+/* ---------- BAP directory: top 5 contractors / lenders near a ZIP, loan packages, public self-listing ---------- */
+const PRO_CATS = {
+  lender: {
+    hard_money: ["Hard money", "Short-term loan (6-24 months) to buy and fix a property. Based mostly on the after-repair value; closes fast, higher rates and points."],
+    private: ["Private money", "An individual investor lending their own money. Terms are negotiated deal by deal; often flexible and quick."],
+    dscr: ["DSCR rental loan", "Long-term (usually 30-year) loan for rentals. Approved on whether the rent covers the payment, not on your personal income."],
+    transactional: ["Transactional funding", "Same-day money for a double close: you buy and resell the property within a day or two."],
+    bridge: ["Bridge loan", "Short-term loan that lets you buy now while waiting on a sale, refinance or long-term loan."],
+    gap: ["Gap funding", "Covers the part a main lender won't, like the down payment or part of the rehab."],
+    conventional: ["Conventional / bank", "Traditional mortgage from a bank or credit union. Slowest, lowest rates; needs good credit and income."],
+  },
+  contractor: {
+    general: ["General contractor", "Runs the whole rehab: scopes the job, schedules and manages the other trades, pulls permits."],
+    roofing: ["Roofing", "Roof repair and replacement, leaks, gutters."],
+    hvac: ["HVAC", "Heating and air conditioning: repair, replacement, ductwork."],
+    plumbing: ["Plumbing", "Pipes, water heaters, drains, sewer lines, fixtures."],
+    electrical: ["Electrical", "Wiring, panels, outlets, lighting; brings old wiring up to code."],
+    foundation: ["Foundation", "Foundation repair, leveling, piers, drainage around the slab."],
+    flooring: ["Flooring", "Tile, wood, laminate and carpet installation and repair."],
+    painting: ["Painting", "Interior and exterior paint, drywall patching."],
+    windows_doors: ["Windows & doors", "Window and door replacement, framing repairs."],
+    kitchen_bath: ["Kitchen & bath", "Cabinets, counters, showers and full kitchen or bath remodels."],
+    landscaping: ["Landscaping", "Yard cleanup, tree work, curb appeal."],
+    demolition_cleanout: ["Demolition & cleanout", "Trash-outs, hauling, interior demolition before the rehab starts."],
+  },
+};
+const proLabel = (kind, k) => (PRO_CATS[kind][k] || [k])[0];
+const JOIN_URL = () => location.origin + location.pathname + "#join";
+
+function joinBanner(kind) {
+  const b = el("button", { class: "ghost small", type: "button", text: "Copy sign-up link" });
+  b.onclick = async () => { try { await navigator.clipboard.writeText(JOIN_URL()); b.textContent = "Copied"; } catch (e) { prompt("Copy this link", JOIN_URL()); } };
+  return el("p", { class: "sub", style: "margin:6px 0 10px" }, (kind === "lender" ? "Lenders" : "Contractors") +
+    " can list themselves in the BAP directory for free at " + JOIN_URL().replace(/^https?:\/\//, "") + " ", b);
+}
+
+function proFinder(kind, mount) {
+  mount.textContent = "";
+  const zip = el("input", { inputmode: "numeric", maxlength: "5", placeholder: "ZIP code", style: "max-width:120px" });
+  const cat = el("select", {}, el("option", { value: "", text: kind === "lender" ? "Any lending style" : "Any trade" }),
+    ...Object.entries(PRO_CATS[kind]).map(([k, [lab]]) => el("option", { value: k, text: lab })));
+  const def = el("p", { class: "sub", style: "margin:6px 0" });
+  const go = el("button", { class: "primary small", type: "button", text: "Find top 5" });
+  const out = el("div"); const msg = el("span", { class: "sub", role: "status" });
+  const glossary = el("details", { style: "margin-top:6px" }, el("summary", { style: "cursor:pointer", text: kind === "lender" ? "What each lending style means" : "What each trade covers" }),
+    el("dl", {}, ...Object.values(PRO_CATS[kind]).flatMap(([lab, d]) => [el("dt", { style: "font-weight:700;margin-top:6px", text: lab }), el("dd", { style: "margin:0", class: "sub", text: d })])));
+  cat.onchange = () => { def.textContent = cat.value ? PRO_CATS[kind][cat.value][1] : ""; };
+  const picked = new Map();
+  const sendBtn = el("button", { class: "primary small hidden", type: "button" });
+  const pkg = el("div");
+  const refreshSend = () => { sendBtn.textContent = "Email loan package to " + picked.size + " selected"; sendBtn.classList.toggle("hidden", kind !== "lender" || !picked.size); };
+  sendBtn.onclick = () => loanPackageForm(pkg, [...picked.values()]);
+  go.onclick = async () => {
+    const z = (zip.value.match(/\d{5}/) || [])[0];
+    if (!z) { msg.textContent = "Enter a 5-digit ZIP code."; return; }
+    msg.textContent = "Searching…"; out.textContent = ""; picked.clear(); refreshSend(); pkg.textContent = "";
+    const { data, error } = await sb.rpc("directory_top", { p_kind: kind, p_zip: z, p_category: cat.value || null, p_limit: 5 });
+    if (error) { msg.textContent = "Couldn't search: " + error.message; return; }
+    msg.textContent = (data || []).length ? "" : "No " + (kind === "lender" ? "lenders" : "contractors") + " listed for that area yet. Share the sign-up link above, or add your own below.";
+    for (const p of data || []) out.append(proCard(kind, p, picked, refreshSend));
+  };
+  mount.append(el("div", { class: "panel" },
+    el("h3", { style: "margin:0 0 4px", text: "Top 5 " + (kind === "lender" ? "lenders" : "contractors") + " near a ZIP" }),
+    joinBanner(kind),
+    el("div", { class: "row2" }, zip, cat, go, msg), def, glossary, out, el("div", { class: "row2", style: "margin-top:8px" }, sendBtn), pkg));
+}
+
+function proCard(kind, p, picked, onPick) {
+  const where = { zip: "Works this ZIP", county: "Works this county", state: "Works statewide" }[p.matched_by] || "";
+  const cats = (p.categories || []).map((k) => proLabel(kind, k)).join(" · ");
+  const lines = [
+    p.contact_name ? el("div", { text: p.contact_name }) : null,
+    p.phone ? el("div", {}, el("a", { href: "tel:" + p.phone.replace(/[^\d+]/g, ""), text: p.phone })) : null,
+    p.email ? el("div", {}, el("a", { href: "mailto:" + p.email, text: p.email })) : null,
+    p.website ? el("div", {}, el("a", { href: /^https?:/.test(p.website) ? p.website : "https://" + p.website, target: "_blank", rel: "noopener", text: p.website })) : null,
+    kind === "lender" && (p.min_loan || p.max_loan) ? el("div", { class: "sub", text: "Loans " + [p.min_loan ? money(p.min_loan) : null, p.max_loan ? money(p.max_loan) : null].filter(Boolean).join(" to ") }) : null,
+    kind === "lender" && p.terms_note ? el("div", { class: "sub", text: "Terms: " + p.terms_note }) : null,
+    kind === "contractor" && (p.license_no || p.insured != null) ? el("div", { class: "sub", text: [p.license_no ? "License " + p.license_no : null, p.insured == null ? null : p.insured ? "Insured" : "Not insured"].filter(Boolean).join(" · ") }) : null,
+    p.about ? el("div", { class: "sub", text: p.about }) : null,
+  ];
+  const save = el("button", { class: "ghost small", type: "button", text: "Save to my " + kind + "s" });
+  save.onclick = async () => {
+    save.disabled = true;
+    const r = await sb.rpc("save_contact", { p: { kind, id: "", name: p.contact_name || p.business_name, company: p.business_name, phone: p.phone || "",
+      email: p.email || "", specialties: (p.categories || []).join(", "), zips: "", cities: "", counties: "", notes: "From the BAP directory" } });
+    save.textContent = r.error ? "Couldn't save" : "Saved"; if (r.error) save.disabled = false;
+  };
+  const head = el("div", { class: "row2", style: "justify-content:space-between" },
+    el("div", {}, el("b", { text: p.business_name }), p.verified ? el("span", { class: "sub", text: " · verified" }) : null,
+      el("div", { class: "sub", text: [cats, where].filter(Boolean).join(" — ") })));
+  if (kind === "lender" && p.email) {
+    const cb = el("input", { type: "checkbox", "aria-label": "Send loan package to " + p.business_name });
+    cb.onchange = () => { cb.checked ? picked.set(p.id, p) : picked.delete(p.id); onPick(); };
+    head.append(el("label", { class: "sub", style: "white-space:nowrap" }, cb, " Send package"));
+  }
+  return el("div", { class: "panel", style: "margin-top:8px" }, head, ...lines, el("div", { class: "row2", style: "margin-top:6px" }, save));
+}
+
+async function loanPackageForm(mount, lenders) {
+  mount.textContent = "";
+  const F = [["address", "Property address"], ["purchase", "Purchase price ($)"], ["rehab", "Rehab budget ($)"], ["arv", "After-repair value ($)"],
+    ["loan", "Loan amount requested ($)"], ["close", "Target closing date"], ["notes", "Anything else (experience, exit plan, photos link)"]];
+  const form = el("div", { class: "grid4" });
+  for (const [k, lab] of F) form.append(el("label", {}, lab, el("input", { "data-k": k, inputmode: ["purchase", "rehab", "arv", "loan"].includes(k) ? "decimal" : "text" })));
+  const exit = el("select", { "data-k": "exit" }, ...[["flip", "Fix & flip (sell after rehab)"], ["rental", "Hold as a rental (refinance later)"], ["wholesale", "Wholesale / double close"]].map(([v, t]) => el("option", { value: v, text: t })));
+  form.append(el("label", {}, "Exit plan", exit));
+  const from = el("select", {}, el("option", { value: "", text: "Fill from a saved deal…" }));
+  const { data: models } = await sb.rpc("my_deal_models", { p_limit: 50 });
+  const seen = new Set();
+  for (const m of models || []) { if (seen.has(m.lead_id)) continue; seen.add(m.lead_id); from.append(el("option", { value: String(seen.size - 1), text: (m.address_line || "Property") + " · " + (STRAT_SHORT[m.strategy] || m.strategy) })); from["m" + (seen.size - 1)] = m; }
+  const set = (k, v) => { const i = form.querySelector('[data-k="' + k + '"]'); if (i && v != null && v !== "") i.value = v; };
+  from.onchange = () => { const m = from["m" + from.value]; if (!m) return;
+    set("address", [m.address_line, m.city].filter(Boolean).join(", ")); set("purchase", Math.round(m.purchase || 0) || ""); set("rehab", Math.round(m.rehab || 0) || "");
+    set("arv", Math.round(m.arv || 0) || ""); if (m.strategy === "rental" || m.strategy === "brrrr") exit.value = "rental"; };
+  const v = (k) => (form.querySelector('[data-k="' + k + '"]') || {}).value || "";
+  const body = () => {
+    const arv = num(v("arv")), loan = num(v("loan"));
+    return ["Loan request: " + (v("address") || "property"), "",
+      "Purchase price: " + (money(num(v("purchase")) || null) || "-"), "Rehab budget: " + (money(num(v("rehab")) || null) || "-"), "After-repair value: " + (money(arv || null) || "-"),
+      "Loan requested: " + (money(loan || null) || "-") + (arv && loan ? " (" + Math.round(loan / arv * 100) + "% of ARV)" : ""),
+      "Exit plan: " + exit.options[exit.selectedIndex].text, v("close") ? "Target closing: " + v("close") : null, v("notes") ? "Notes: " + v("notes") : null,
+      "", "Can you let me know if this fits your program, and your rate, points and max loan for it?"].filter((x) => x !== null).join("\n") + sigText();
+  };
+  const emails = lenders.map((l) => l.email).filter(Boolean);
+  const mail = el("button", { class: "primary small", type: "button", text: "Open email to " + emails.length + " lender" + (emails.length === 1 ? "" : "s") });
+  mail.onclick = () => {
+    const subj = "Loan request: " + (v("address") || "investment property");
+    // BCC so lenders don't see each other; To is your own address when your business profile has one
+    location.href = "mailto:" + encodeURIComponent((bizCache || {}).email || "") + "?bcc=" + encodeURIComponent(emails.join(",")) +
+      "&subject=" + encodeURIComponent(subj) + "&body=" + encodeURIComponent(body());
+  };
+  const copy = el("button", { class: "ghost small", type: "button", text: "Copy package" });
+  copy.onclick = async () => { try { await navigator.clipboard.writeText(body()); copy.textContent = "Copied"; } catch (e) { prompt("Copy", body()); } };
+  mount.append(el("div", { class: "panel", style: "margin-top:8px" },
+    el("b", { text: "Loan package for: " + lenders.map((l) => l.business_name).join(", ") }),
+    el("p", { class: "sub", text: "Opens one email in your mail app with each lender as a hidden copy (BCC), so they don't see each other." }),
+    from, form, el("div", { class: "row2", style: "margin-top:8px" }, mail, copy)));
+  biz();
+}
+
+// public page: app.buybap.com/#join - contractors and lenders list themselves (no account)
+function renderJoin() {
+  for (const id of ["auth", "app", "pipe", "deals", "svc", "lend", "buy", "crew", "views"]) if ($(id)) $(id).classList.add("hidden");
+  const box = $("dealPublic"); box.classList.remove("hidden"); box.textContent = "";
+  let kind = "contractor";
+  const kindRow = el("div", { class: "row2" }); const cats = el("div"); const extra = el("div", { class: "grid4" }); const msg = el("p", { role: "status" });
+  const base = el("div", { class: "grid4" });
+  const field = (k, lab, attrs) => el("label", {}, lab, el("input", Object.assign({ "data-k": k }, attrs || {})));
+  base.append(field("business_name", "Business name *"), field("contact_name", "Your name"), field("email", "Email"), field("phone", "Phone", { inputmode: "tel" }),
+    field("website", "Website"), field("zips", "ZIP codes you serve (comma separated)"), field("counties", "Counties you serve"), field("states", "States you serve (e.g. TX, OK)"));
+  const draw = () => {
+    kindRow.textContent = "";
+    for (const [k, t] of [["contractor", "I'm a contractor"], ["lender", "I'm a lender"]]) {
+      const b = el("button", { class: k === kind ? "primary small" : "ghost small", type: "button", text: t, "aria-pressed": String(k === kind) });
+      b.onclick = () => { kind = k; draw(); }; kindRow.append(b);
+    }
+    cats.textContent = "";
+    cats.append(el("p", { style: "font-weight:700;margin:12px 0 4px", text: kind === "lender" ? "Lending styles you offer *" : "Trades you do *" }));
+    for (const [k, [lab, d]] of Object.entries(PRO_CATS[kind]))
+      cats.append(el("label", { style: "display:block;margin:4px 0" }, el("input", { type: "checkbox", value: k }), " ", el("b", { text: lab }), el("span", { class: "sub", text: " — " + d })));
+    extra.textContent = "";
+    if (kind === "lender") extra.append(field("min_loan", "Smallest loan ($)", { inputmode: "decimal" }), field("max_loan", "Largest loan ($)", { inputmode: "decimal" }),
+      field("terms_note", "Typical terms (rate, points, LTV)"));
+    else extra.append(field("license_no", "License #"), field("insured", "Insured? (yes / no)"));
+    extra.append(field("about", "About you (one or two lines)"));
+  };
+  const submit = el("button", { class: "primary", type: "button", text: "List me in the BAP directory" });
+  submit.onclick = async () => {
+    const p = { kind, categories: [...cats.querySelectorAll("input:checked")].map((i) => i.value) };
+    for (const i of box.querySelectorAll("input[data-k]")) p[i.dataset.k] = i.value.trim();
+    submit.disabled = true; msg.className = "msg"; msg.textContent = "Saving…";
+    const { error } = await sb.rpc("join_directory", { p });
+    submit.disabled = false;
+    if (error) { msg.className = "msg err"; msg.textContent = error.message; return; }
+    msg.textContent = "You're listed. Investors searching your ZIP code on BAP will see you" + (kind === "lender" ? " and can send you loan packages by email." : ".") +
+      " To update your listing later, submit this form again with the same email.";
+  };
+  draw();
+  box.append(el("h2", { text: "Get deals from BAP investors" }),
+    el("p", { class: "sub", text: "Contractors and lenders: list your business free. Investors on BAP see the top 5 in each ZIP code and contact you directly." }),
+    kindRow, base, cats, extra, el("div", { style: "margin-top:12px" }, submit), msg);
+}
+
 /* ---------- Lenders tab: saved deal models + editable targets ---------- */
 const TGT_FIELDS = [["flip_min_profit", "Flip: minimum profit ($)"], ["flip_min_pct_arv", "Flip: minimum profit (% of sale price)"],
   ["mao_pct", "Max offer rule (% of ARV)"], ["max_loan_to_arv", "Lender loan limit (% of ARV)"],
@@ -2156,6 +2342,7 @@ const TGT_FIELDS = [["flip_min_profit", "Flip: minimum profit ($)"], ["flip_min_
   ["rental_min_coc", "Rental: cash-on-cash target (%)"], ["min_dscr", "Debt coverage lenders want (x)"]];
 const STRAT_SHORT = { flip: "Flip", rental: "Rental", brrrr: "BRRRR" };
 async function loadLenders() {
+  proFinder("lender", $("lendFinder"));
   contactsPanel("lender", $("lendContacts"));
   const T = await dealTargets(true);
   const form = $("lTgtForm"); form.textContent = "";
