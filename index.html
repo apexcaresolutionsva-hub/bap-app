@@ -484,7 +484,7 @@ const SUPABASE_URL = "https://rpcdrgzcaarggupctede.supabase.co";
 const SUPABASE_KEY = "sb_publishable_qyI3EzhYghqCmRnhu41ucg_lhzhufqt";   // publishable: safe in a browser, data protected by row-level security
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 /* ---------- PRACTICE MODE (sandbox): try every task; reads are real, nothing is saved, sent or charged ---------- */
-const PRACTICE = (() => { try { return location.hash === "#practice" || sessionStorage.getItem("bapPractice") === "1"; } catch (e) { return location.hash === "#practice"; } })();
+const PRACTICE = (() => { try { return location.hash === "#practice" || location.hash === "#demo" || sessionStorage.getItem("bapPractice") === "1"; } catch (e) { return location.hash === "#practice" || location.hash === "#demo"; } })();
 const PRACTICE_READS = new Set(["lead_map", "lead_search", "lead_facets", "lead_detail", "lead_counties", "lead_kind_counts", "lead_models",
   "my_deal_models", "match_contacts", "deal_for_lead", "deal_for_listing", "contract_library", "contract_vault", "rehab_for_lead", "public_deal",
   "pipeline_list", "pipeline_lead", "my_usage", "my_services", "my_deal_targets", "my_business", "match_my_buyers", "map_coverage",
@@ -560,12 +560,83 @@ const PRACTICE_SAMPLES = {
   const bar = document.createElement("div");
   bar.id = "practiceBar"; bar.setAttribute("role", "region"); bar.setAttribute("aria-label", "Practice mode");
   bar.style.cssText = "position:sticky;top:0;z-index:9998;background:#b8860b;color:#fff;padding:8px 12px;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;font-weight:700;font-size:14px";
-  const txt = document.createElement("span"); txt.textContent = "PRACTICE MODE: real leads, but nothing is saved, sent or charged.";
+  const isDemo = location.hash === "#demo" || (() => { try { return sessionStorage.getItem("bapDemo") === "1"; } catch (e) { return false; } })();
+  const txt = document.createElement("span"); txt.textContent = isDemo ? "BAP DEMO: explore freely with real leads. Nothing is saved, sent or charged." : "PRACTICE MODE: real leads, but nothing is saved, sent or charged.";
   const exit = document.createElement("button"); exit.type = "button"; exit.className = "small"; exit.textContent = "Exit practice mode";
   exit.style.cssText = "background:#fff;color:#5b3a00;border:0;border-radius:8px;padding:4px 10px;font-weight:700;cursor:pointer";
-  exit.onclick = () => { try { sessionStorage.removeItem("bapPractice"); } catch (e) { /* ignore */ } location.replace(location.pathname); };
+  if (isDemo) exit.textContent = "Exit demo";
+  exit.onclick = () => { try { sessionStorage.removeItem("bapPractice"); sessionStorage.removeItem("bapDemo"); } catch (e) { /* ignore */ }
+    if (isDemo) sb.auth.signOut().finally(() => location.replace(location.pathname)); else location.replace(location.pathname); };
   bar.append(txt, exit); document.body.prepend(bar);
 })();
+/* ---------- DEMO LINK: app.buybap.com/#demo - anyone can try BAP: temporary private session + practice mode + guided tour ---------- */
+const DEMO = location.hash === "#demo" || (() => { try { return sessionStorage.getItem("bapDemo") === "1"; } catch (e) { return false; } })();
+const DEMO_BOOK = "https://calendar.google.com/calendar/appointments/schedules/AcZssZ16HsxPcGoraMYWnF1kXXbE9RIOc8MFcIwc0UEP2MzVi6r4JVuyNByDFOE8LhCAnGYnszwY2fy8";
+async function startDemo() {
+  try { sessionStorage.setItem("bapDemo", "1"); sessionStorage.setItem("bapPractice", "1"); } catch (e) { /* ignore */ }
+  const { data } = await sb.auth.getSession();
+  if (data && data.session) return true;
+  const r = await sb.auth.signInAnonymously();
+  if (r.error) {
+    const box = document.getElementById("auth");
+    if (box) box.prepend(Object.assign(document.createElement("p"), { className: "msg err",
+      textContent: "The BAP demo isn't switched on yet. Please check back soon, or contact realestate@buybap.com." }));
+    return false;
+  }
+  return true;
+}
+const DEMO_STEPS = [
+  { view: "leads", target: "map", title: "Real distress leads, nationwide",
+    text: "Every dot is a real property with a public distress signal: tax delinquent, pre-foreclosure, vacant, code violations. BAP pulls them from county and city records in 15+ markets and checks for new data around the clock." },
+  { view: "leads", target: "marketSel", title: "Jump to any market",
+    text: "Pick a metro to fly there: Dallas-Fort Worth, Houston, Cleveland, Philadelphia, Baltimore and more." },
+  { view: "leads", target: "mapFilters", title: "Stack filters to find motivated sellers",
+    text: "Every box you check narrows the list. Tax delinquent + absentee owner + senior shows only owners who are all three." },
+  { view: "leads", target: "mapQ", title: "Driving for dollars",
+    text: "Type any street address in the U.S. BAP finds it, drops a pin and shows Zillow, Street View and whether it's already a distress lead." },
+  { view: "pipe", target: "vPipe", title: "Your deal pipeline",
+    text: "Save leads, skip trace owners for phone numbers, run an AI deal analysis, estimate repairs and value, and track every deal from first call to closing." },
+  { view: "lend", target: "vLend", title: "Lenders and loan packages",
+    text: "See the top 5 lenders near any ZIP, with lending styles explained in plain English. Pick several and send one loan package to all of them." },
+  { view: "buy", target: "vBuy", title: "Buyers and contracts",
+    text: "Match deals to your cash buyers, publish a shareable deal page, and generate state-specific contracts with the required disclosures." },
+];
+function demoTour(i = 0) {
+  document.querySelectorAll(".demo-tour,.demo-ring").forEach((n) => n.remove());
+  const step = DEMO_STEPS[i];
+  const card = document.createElement("div");
+  card.className = "demo-tour"; card.setAttribute("role", "dialog"); card.setAttribute("aria-label", "BAP demo tour");
+  card.style.cssText = "position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:10001;width:min(440px,94vw);background:var(--card,#fff);color:inherit;border-radius:14px;padding:16px;box-shadow:0 8px 30px rgba(0,0,0,.3)";
+  const h = (t, x, css) => { const n = document.createElement(t); n.textContent = x; if (css) n.style.cssText = css; return n; };
+  const btn = (x, cls, fn) => { const b = document.createElement("button"); b.type = "button"; b.className = cls; b.textContent = x; b.onclick = fn; return b; };
+  if (!step) {
+    card.append(h("b", "That's BAP.", "font-size:18px"),
+      h("p", "Find distressed properties, reach owners, run the numbers, and line up lenders, contractors and buyers in one app. BAP is still being built, so more is on the way.", "margin:8px 0"));
+    const row = document.createElement("div"); row.style.cssText = "display:flex;gap:8px;flex-wrap:wrap";
+    const book = document.createElement("a"); book.href = DEMO_BOOK; book.target = "_blank"; book.rel = "noopener"; book.className = "primary small";
+    book.textContent = "Book a call with BAP"; book.style.cssText = "display:inline-block;padding:8px 14px;border-radius:8px;text-decoration:none";
+    row.append(book, btn("Keep exploring", "ghost small", () => card.remove()));
+    card.append(row); document.body.append(card); return;
+  }
+  if (step.view && typeof setView === "function") setView(step.view);
+  setTimeout(() => {
+    const t = document.getElementById(step.target);
+    if (t) {
+      t.scrollIntoView({ block: "center", behavior: "smooth" });
+      const r = t.getBoundingClientRect(); const ring = document.createElement("div"); ring.className = "demo-ring";
+      ring.style.cssText = `position:fixed;z-index:10000;pointer-events:none;border:3px solid #b8860b;border-radius:10px;box-shadow:0 0 0 4000px rgba(0,0,0,.25);left:${Math.max(4, r.left - 6)}px;top:${Math.max(4, r.top - 6)}px;width:${Math.min(innerWidth - 8, r.width + 12)}px;height:${Math.min(innerHeight * .6, r.height + 12)}px`;
+      document.body.append(ring);
+    }
+  }, 350);
+  card.append(h("div", "Step " + (i + 1) + " of " + DEMO_STEPS.length, "font-size:12px;opacity:.7"), h("b", step.title, "display:block;font-size:17px;margin:2px 0 6px"), h("p", step.text, "margin:0 0 12px"));
+  const row = document.createElement("div"); row.style.cssText = "display:flex;gap:8px;justify-content:space-between";
+  row.append(btn("Skip tour", "link", () => { document.querySelectorAll(".demo-tour,.demo-ring").forEach((n) => n.remove()); }),
+    h("span", ""));
+  const nav = document.createElement("div"); nav.style.cssText = "display:flex;gap:8px";
+  if (i > 0) nav.append(btn("Back", "ghost small", () => demoTour(i - 1)));
+  nav.append(btn(i === DEMO_STEPS.length - 1 ? "Finish" : "Next", "primary small", () => demoTour(i + 1)));
+  row.append(nav); card.append(row); document.body.append(card);
+}
 function enterPractice() { try { sessionStorage.setItem("bapPractice", "1"); } catch (e) { /* ignore */ } location.replace(location.pathname + "#practice"); location.reload(); }
 
 const PAGE = 100;
@@ -640,7 +711,13 @@ sb.auth.onAuthStateChange((_evt, session) => {
   const deal = (location.hash.match(/^#deal\/([a-z0-9]+)/) || [])[1];
   if (deal) { renderPublicDeal(deal); return; }            // public deal pages need no sign-in
   if (location.hash === "#join") { renderJoin(); return; }  // contractors / lenders list themselves, no sign-in
+  if (DEMO && !session) { startDemo(); return; }           // demo link: temporary private session, then this runs again
   session ? showApp(session.user) : showAuth();
+  if (DEMO && session) {
+    $("who").textContent = "Demo";
+    let toured = false; try { toured = sessionStorage.getItem("bapDemoToured") === "1"; sessionStorage.setItem("bapDemoToured", "1"); } catch (e) { /* ignore */ }
+    if (!toured) setTimeout(() => demoTour(0), 1200);
+  }
 });
 window.addEventListener("hashchange", () => { if (/^#deal\//.test(location.hash) || location.hash === "#join") location.reload(); });
 
