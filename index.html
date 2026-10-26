@@ -1154,7 +1154,7 @@ function mapFeatures(data) {
     const col = KIND_COLORS[kind] || KIND_COLORS.owner;
     const props = data.mode === "clusters"
       ? { t: "c", n: it.n, col, label: it.n >= 1000 ? (it.n / 1000).toFixed(it.n >= 10000 ? 0 : 1) + "K" : String(it.n) }
-      : { t: "p", id: it.id, col, label: it.v ? shortMoney(it.v) : String(it.s ?? ""), raw: JSON.stringify(it) };
+      : { t: "p", id: it.id, col, label: it.v ? shortMoney(it.v) : (it.s != null ? "BAP score " + it.s : ""), raw: JSON.stringify(it) };
     return { type: "Feature", geometry: { type: "Point", coordinates: [it.lng, it.lat] }, properties: props };
   });
 }
@@ -1511,7 +1511,7 @@ async function openDetail(id) {
   const facts = el("div", { class: "facts" });
   const fact = (k, v) => { if (v != null && v !== "") facts.append(el("div", {}, el("b", { text: k }), String(v))); };
   fact("Owner", title(p.owner_name)); fact("Mailing address", title(p.owner_mail_addr));
-  fact("Score", p.motivation_score); fact("Assessed value", money(p.assessed_value));
+  fact("BAP score", p.motivation_score); fact("Assessed value", money(p.assessed_value));
   fact("Land / building", p.land_value ? money(p.land_value) + " / " + money(p.impr_value) : null);
   fact("Year built", p.year_built); fact("Size", p.sqft ? Number(p.sqft).toLocaleString() + " sq ft" : null);
   fact("Beds / baths", p.beds ? p.beds + " / " + (p.baths ?? "?") : null);
