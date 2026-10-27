@@ -458,6 +458,7 @@ tbody tr:last-child td { border-bottom: 0; }
 
 <section class="pipe hidden" id="svc" aria-label="Services">
   <div class="toolbar"><span class="count">Services</span><span class="spacer"></span><span class="sub" id="svcPlan"></span></div>
+  <div class="panel" id="billPanel" style="margin-bottom:12px"></div>
   <details class="panel" id="bizPanel"><summary style="cursor:pointer;font-weight:700">My business profile</summary>
     <p class="sub">Fill this in once. BAP uses it on your contracts (buying name, title company, earnest money, inspection days), on your deal pages, and to sign the emails it drafts to buyers, lenders and contractors.</p>
     <div class="grid4" id="bizForm"></div>
@@ -713,6 +714,7 @@ sb.auth.onAuthStateChange((_evt, session) => {
   if (location.hash === "#join") { renderJoin(); return; }  // contractors / lenders list themselves, no sign-in
   if (DEMO && !session) { startDemo(); return; }           // demo link: temporary private session, then this runs again
   session ? showApp(session.user) : showAuth();
+  if (session && /^#billing/.test(location.hash)) setTimeout(() => setView("svc"), 300);   // back from Stripe Checkout / portal
   if (DEMO && session) {
     $("who").textContent = "Demo";
     let toured = false; try { toured = sessionStorage.getItem("bapDemoToured") === "1"; sessionStorage.setItem("bapDemoToured", "1"); } catch (e) { /* ignore */ }
@@ -2008,7 +2010,47 @@ async function servicePrices() {
   return svcCache;
 }
 const SVC_NAMES = { ai_analysis: "AI deal analysis", skiptrace: "Skip trace", valuation: "Value & rent", contract_template: "Contract template" };
+/* ---------- Billing (Stripe): membership + prepaid credits; hosted Checkout + Customer Portal ---------- */
+const CREDIT_PACKS = [["price_1UVC12I7QKnbT6PYwMxTK1X3", 20], ["price_1UVC16I7QKnbT6PYA93UTKOV", 50], ["price_1UVC1BI7QKnbT6PYodVPWKIh", 100]];
+async function billingGo(fn, body, msg) {
+  msg.className = "sub"; msg.textContent = "Opening secure checkout…";
+  const { data, error } = await sb.functions.invoke(fn, { body });
+  if (data && data.url) { location.href = data.url; return; }
+  let text = (data && data.error) || (error && error.message) || "Something went wrong.";
+  if (error && error.context && typeof error.context.json === "function") { try { text = (await error.context.json()).error || text; } catch (e) { /* keep */ } }
+  if (data && data.practice) text = "Practice mode: checkout was simulated. Nothing was charged.";
+  msg.className = "msg err"; msg.textContent = text;
+}
+async function loadBilling() {
+  const box = $("billPanel"); if (!box) return;
+  box.textContent = "";
+  const { data: b, error } = await sb.rpc("my_billing");
+  const msg = el("p", { class: "sub", role: "status" });
+  if (error || !b) { box.append(el("p", { class: "sub", text: "Billing isn't available right now." })); return; }
+  const until = b.period_end ? new Date(b.period_end).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
+  const status = b.member
+    ? "Member" + (b.status === "past_due" ? " (payment past due: update your card)" : until ? " · renews or ends " + until : "")
+    : "Not a member yet: members get lower prices on every service.";
+  box.append(el("h3", { style: "margin:0 0 6px", text: "Membership & credits" }),
+    el("p", { style: "margin:0 0 4px" }, el("b", { text: status })),
+    el("p", { style: "margin:0 0 10px" }, "Credit balance: ", el("b", { text: money(b.credit_balance || 0) || "$0" }),
+      el("span", { class: "sub", text: " (bought " + (money(b.credits_bought || 0) || "$0") + ", used " + (money(b.credits_used || 0) || "$0") + ")" })));
+  const row = el("div", { class: "row2" });
+  if (!b.member) { const j = el("button", { class: "primary small", type: "button", text: "Join BAP: $49/month" }); j.onclick = () => billingGo("stripe-checkout", { kind: "membership" }, msg); row.append(j); }
+  for (const [price, dollars] of CREDIT_PACKS) {
+    const c = el("button", { class: "ghost small", type: "button", text: "Buy $" + dollars + " credits" });
+    c.onclick = () => billingGo("stripe-checkout", { kind: "credits", price }, msg); row.append(c);
+  }
+  if (b.has_billing) { const m = el("button", { class: "ghost small", type: "button", text: "Manage billing" }); m.onclick = () => billingGo("stripe-portal", {}, msg); row.append(m); }
+  box.append(row, el("p", { class: "sub", style: "margin:8px 0 0", text: "Payments are processed securely by Stripe. Cancel anytime in Manage billing; membership stays active to the end of the month you paid for." }), msg);
+  if (location.hash === "#billing-success") {
+    msg.className = "msg"; msg.textContent = "Payment received. Thank you! Your account updates within a few seconds.";
+    history.replaceState(null, "", location.pathname);
+    setTimeout(loadBilling, 4000);
+  }
+}
 async function loadServices() {
+  loadBilling();
   svcCache = null;
   const svc = await servicePrices();
   const rows = $("svcRows"); rows.textContent = "";
