@@ -2011,7 +2011,7 @@ async function servicePrices() {
 }
 const SVC_NAMES = { ai_analysis: "AI deal analysis", skiptrace: "Skip trace", valuation: "Value & rent", contract_template: "Contract template" };
 /* ---------- Billing (Stripe): membership + prepaid credits; hosted Checkout + Customer Portal ---------- */
-const CREDIT_PACKS = [["price_1UVC12I7QKnbT6PYwMxTK1X3", 20], ["price_1UVC16I7QKnbT6PYA93UTKOV", 50], ["price_1UVC1BI7QKnbT6PYodVPWKIh", 100]];
+const CREDIT_PACKS = [20, 50, 100];   // dollars; the server picks the live or test Stripe price for each pack
 async function billingGo(fn, body, msg) {
   msg.className = "sub"; msg.textContent = "Opening secure checkout…";
   const { data, error } = await sb.functions.invoke(fn, { body });
@@ -2037,9 +2037,9 @@ async function loadBilling() {
       el("span", { class: "sub", text: " (bought " + (money(b.credits_bought || 0) || "$0") + ", used " + (money(b.credits_used || 0) || "$0") + ")" })));
   const row = el("div", { class: "row2" });
   if (!b.member) { const j = el("button", { class: "primary small", type: "button", text: "Join BAP: $49/month" }); j.onclick = () => billingGo("stripe-checkout", { kind: "membership" }, msg); row.append(j); }
-  for (const [price, dollars] of CREDIT_PACKS) {
+  for (const dollars of CREDIT_PACKS) {
     const c = el("button", { class: "ghost small", type: "button", text: "Buy $" + dollars + " credits" });
-    c.onclick = () => billingGo("stripe-checkout", { kind: "credits", price }, msg); row.append(c);
+    c.onclick = () => billingGo("stripe-checkout", { kind: "credits", pack: dollars }, msg); row.append(c);
   }
   if (b.has_billing) { const m = el("button", { class: "ghost small", type: "button", text: "Manage billing" }); m.onclick = () => billingGo("stripe-portal", {}, msg); row.append(m); }
   box.append(row, el("p", { class: "sub", style: "margin:8px 0 0", text: "Payments are processed securely by Stripe. Cancel anytime in Manage billing; membership stays active to the end of the month you paid for." }), msg);
