@@ -427,6 +427,7 @@ tbody tr:last-child td { border-bottom: 0; }
 
 <section class="pipe hidden" id="mkt" aria-label="Deals for sale">
   <div class="toolbar"><span class="count" id="mCount">Deals for sale</span><span class="spacer"></span>
+    <label for="mType" class="sub">Type</label> <select id="mType"><option value="home">Homes</option><option value="land">Vacant land</option><option value="commercial">Commercial</option><option value="">All types</option></select>
     <label for="mState" class="sub">State</label> <select id="mState"><option value="">All states</option></select>
     <button class="primary small" id="mPostBtn" type="button">Post a deal</button></div>
   <p class="sub" style="margin-top:-6px">Properties actually for sale: homes and lots from city and county land banks, deals wholesalers share with BAP buyers, and contracts BAP members are assigning. Land bank listings update daily.</p>
@@ -1616,9 +1617,10 @@ const mktMoney = (n) => n == null ? "" : "$" + Number(n).toLocaleString("en-US",
 let mktStatesLoaded = false;
 async function loadMarket() {
   $("mCount").textContent = "Loading…";
-  let q = sb.from("market_deals").select("id,source_kind,source_name,state,city,address,zip,price,arv,beds,baths,sqft,program,details,listing_date,url,contact_name,contact_email,contact_phone,lat,lng")
+  let q = sb.from("market_deals").select("id,source_kind,source_name,state,city,address,zip,price,arv,beds,baths,sqft,program,details,listing_date,url,contact_name,contact_email,contact_phone,lat,lng,property_type")
     .eq("status", "active").order("listing_date", { ascending: false, nullsFirst: false }).limit(400);
   if ($("mState").value) q = q.eq("state", $("mState").value);
+  if ($("mType").value) q = q.eq("property_type", $("mType").value);
   const { data, error } = await q;
   const box = $("mList"); box.textContent = "";
   if (error) { $("mCount").textContent = "Couldn't load deals"; return; }
@@ -1626,14 +1628,15 @@ async function loadMarket() {
     for (const st of [...new Set(data.map((d) => d.state).filter(Boolean))].sort()) $("mState").append(el("option", { value: st, text: st }));
     mktStatesLoaded = true;
   }
-  $("mCount").textContent = data.length.toLocaleString("en-US") + (data.length === 1 ? " deal for sale" : " deals for sale");
+  const what = { home: ["home", "homes"], land: ["lot", "lots"], commercial: ["commercial property", "commercial properties"] }[$("mType").value] || ["deal", "deals"];
+  $("mCount").textContent = data.length.toLocaleString("en-US") + " " + (data.length === 1 ? what[0] : what[1]) + " for sale";
   $("mEmpty").classList.toggle("hidden", data.length > 0);
   for (const d of data) {
     const where = [d.address, d.city, d.state].filter(Boolean).join(", ") + (d.zip ? " " + d.zip : "");
     const facts = [d.price != null ? "Asking " + mktMoney(d.price) : "", d.arv != null ? "ARV " + mktMoney(d.arv) : "",
       d.beds ? d.beds + " bd" : "", d.baths ? d.baths + " ba" : "", d.sqft ? Number(d.sqft).toLocaleString("en-US") + " sqft" : ""].filter(Boolean).join(" · ");
     const card = el("div", { class: "panel", style: "display:grid;gap:6px" },
-      el("div", { class: "sub", text: (MKT_BADGE[d.source_kind] || "Deal") + " · " + d.source_name }),
+      el("div", { class: "sub", text: [MKT_BADGE[d.source_kind] || "Deal", { home: "Home", land: "Vacant land", commercial: "Commercial" }[d.property_type], d.source_name].filter(Boolean).join(" · ") }),
       el("b", { text: where }),
       el("div", { class: "sub", text: [d.program, d.details].filter(Boolean).join(" · ") }));
     if (facts) card.append(el("div", { text: facts }));
@@ -1650,6 +1653,7 @@ async function loadMarket() {
   loadPendingDeals();
 }
 $("mState").onchange = () => loadMarket();
+$("mType").onchange = () => { mktStatesLoaded = false; $("mState").length = 1; loadMarket(); };
 async function loadPendingDeals() {
   const box = $("mPending"); box.textContent = "";
   const { data } = await sb.rpc("pending_deals");
