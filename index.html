@@ -259,6 +259,7 @@ tbody tr:last-child td { border-bottom: 0; }
   <span class="mark">BAP</span>
   <nav class="views hidden" id="views" aria-label="Views">
     <button type="button" id="vLeads" aria-pressed="true">Leads</button>
+    <button type="button" id="vMkt" aria-pressed="false">Deals</button>
     <button type="button" id="vPipe" aria-pressed="false">Pipeline</button>
     <button type="button" id="vDeals" aria-pressed="false">Contracts</button>
     <button type="button" id="vLend" aria-pressed="false">Lenders</button>
@@ -422,6 +423,17 @@ tbody tr:last-child td { border-bottom: 0; }
   <h3 style="margin-top:18px">Your lenders</h3>
   <p class="sub" style="margin-top:-4px">Add the lenders you work with (loan types and areas). Inside any deal, Deal numbers shows which of them fit and drafts the email for you.</p>
   <div id="lendContacts"></div>
+</section>
+
+<section class="pipe hidden" id="mkt" aria-label="Deals for sale">
+  <div class="toolbar"><span class="count" id="mCount">Deals for sale</span><span class="spacer"></span>
+    <label for="mState" class="sub">State</label> <select id="mState"><option value="">All states</option></select>
+    <button class="primary small" id="mPostBtn" type="button">Post a deal</button></div>
+  <p class="sub" style="margin-top:-6px">Properties actually for sale: homes and lots from city and county land banks, deals wholesalers share with BAP buyers, and contracts BAP members are assigning. Land bank listings update daily.</p>
+  <div id="mPending"></div>
+  <div id="mForm" class="panel hidden" style="margin-bottom:12px"></div>
+  <div id="mList" style="display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr))"></div>
+  <p class="sub hidden" id="mEmpty">No deals for this area yet.</p>
 </section>
 
 <section class="pipe hidden" id="crew" aria-label="Contractors">
@@ -1583,6 +1595,7 @@ const STAGES = { new: "New", researching: "Researching", contacted: "Contacted",
 const ACTIVE = ["new", "researching", "contacted", "negotiating", "under_contract", "marketing", "assigned"];
 let pStage = "active";
 function setView(v) {
+  $("mkt").classList.toggle("hidden", v !== "mkt"); $("vMkt").setAttribute("aria-pressed", String(v === "mkt")); if (v === "mkt") loadMarket();
   $("app").classList.toggle("hidden", v !== "leads"); $("pipe").classList.toggle("hidden", v !== "pipe");
   $("deals").classList.toggle("hidden", v !== "deals"); $("svc").classList.toggle("hidden", v !== "svc");
   $("lend").classList.toggle("hidden", v !== "lend"); $("vLend").setAttribute("aria-pressed", String(v === "lend")); if (v === "lend") loadLenders();
@@ -1595,6 +1608,94 @@ function setView(v) {
   if (v === "deals") loadVault();
 }
 $("vDeals").onclick = () => setView("deals");
+$("vMkt").onclick = () => setView("mkt");
+
+/* ---------- Deals tab: properties for sale (land banks, opted-in wholesalers, member contracts) ---------- */
+const MKT_BADGE = { land_bank: "Land bank", county_owned: "County owned", wholesaler: "Wholesaler", member: "BAP member" };
+const mktMoney = (n) => n == null ? "" : "$" + Number(n).toLocaleString("en-US", { maximumFractionDigits: 0 });
+let mktStatesLoaded = false;
+async function loadMarket() {
+  $("mCount").textContent = "Loading…";
+  let q = sb.from("market_deals").select("id,source_kind,source_name,state,city,address,zip,price,arv,beds,baths,sqft,program,details,listing_date,url,contact_name,contact_email,contact_phone,lat,lng")
+    .eq("status", "active").order("listing_date", { ascending: false, nullsFirst: false }).limit(400);
+  if ($("mState").value) q = q.eq("state", $("mState").value);
+  const { data, error } = await q;
+  const box = $("mList"); box.textContent = "";
+  if (error) { $("mCount").textContent = "Couldn't load deals"; return; }
+  if (!mktStatesLoaded && !$("mState").value) {
+    for (const st of [...new Set(data.map((d) => d.state).filter(Boolean))].sort()) $("mState").append(el("option", { value: st, text: st }));
+    mktStatesLoaded = true;
+  }
+  $("mCount").textContent = data.length.toLocaleString("en-US") + (data.length === 1 ? " deal for sale" : " deals for sale");
+  $("mEmpty").classList.toggle("hidden", data.length > 0);
+  for (const d of data) {
+    const where = [d.address, d.city, d.state].filter(Boolean).join(", ") + (d.zip ? " " + d.zip : "");
+    const facts = [d.price != null ? "Asking " + mktMoney(d.price) : "", d.arv != null ? "ARV " + mktMoney(d.arv) : "",
+      d.beds ? d.beds + " bd" : "", d.baths ? d.baths + " ba" : "", d.sqft ? Number(d.sqft).toLocaleString("en-US") + " sqft" : ""].filter(Boolean).join(" · ");
+    const card = el("div", { class: "panel", style: "display:grid;gap:6px" },
+      el("div", { class: "sub", text: (MKT_BADGE[d.source_kind] || "Deal") + " · " + d.source_name }),
+      el("b", { text: where }),
+      el("div", { class: "sub", text: [d.program, d.details].filter(Boolean).join(" · ") }));
+    if (facts) card.append(el("div", { text: facts }));
+    const row = el("div", { style: "display:flex;gap:6px;flex-wrap:wrap" });
+    const gq = encodeURIComponent(where);
+    row.append(el("a", { href: d.lat ? `https://www.google.com/maps/search/?api=1&query=${d.lat},${d.lng}` : `https://www.google.com/maps/search/?api=1&query=${gq}`, target: "_blank", rel: "noopener", text: "Map" }));
+    if (d.lat) row.append(el("a", { href: `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${d.lat},${d.lng}`, target: "_blank", rel: "noopener", text: "Street View" }));
+    if (d.url) row.append(el("a", { href: d.url, target: "_blank", rel: "noopener", text: d.source_kind === "land_bank" ? "How to buy" : "View listing" }));
+    if (d.contact_email) row.append(el("a", { href: "mailto:" + d.contact_email + "?subject=" + encodeURIComponent("Your deal at " + where + " (via BAP)"), text: "Email" }));
+    if (d.contact_phone) row.append(el("a", { href: "tel:" + d.contact_phone.replace(/[^0-9+]/g, ""), text: "Call" }));
+    card.append(row);
+    box.append(card);
+  }
+  loadPendingDeals();
+}
+$("mState").onchange = () => loadMarket();
+async function loadPendingDeals() {
+  const box = $("mPending"); box.textContent = "";
+  const { data } = await sb.rpc("pending_deals");
+  if (!data || !data.length) return;                 // owner only, and only when something is waiting
+  box.append(el("h3", { style: "margin:4px 0", text: "Waiting for your approval (" + data.length + ")" }));
+  for (const d of data) {
+    const r = el("div", { class: "panel", style: "margin-bottom:6px" },
+      el("b", { text: [d.address, d.city, d.state].filter(Boolean).join(", ") }),
+      el("div", { class: "sub", text: [d.source_name, d.contact_name, d.contact_email, d.contact_phone, d.price != null ? "Asking " + mktMoney(d.price) : ""].filter(Boolean).join(" · ") }),
+      el("div", { class: "sub", text: d.details || "" }));
+    const ok = el("button", { type: "button", class: "primary small", text: "Approve" }), no = el("button", { type: "button", class: "small", text: "Reject" });
+    ok.onclick = async () => { await sb.rpc("approve_deal", { p_id: d.id, p_ok: true }); loadMarket(); };
+    no.onclick = async () => { await sb.rpc("approve_deal", { p_id: d.id, p_ok: false }); loadMarket(); };
+    r.append(el("div", { style: "display:flex;gap:6px;margin-top:6px" }, ok, no));
+    box.append(r);
+  }
+}
+$("mPostBtn").onclick = () => {
+  const f = $("mForm");
+  if (!f.classList.contains("hidden")) { f.classList.add("hidden"); return; }
+  f.textContent = ""; f.classList.remove("hidden");
+  const fields = [["address", "Street address *"], ["city", "City"], ["state", "State (2 letters)"], ["zip", "ZIP"], ["price", "Asking price"], ["arv", "ARV"],
+    ["beds", "Beds"], ["baths", "Baths"], ["sqft", "Sq ft"], ["company", "Company"], ["contact_name", "Your name"], ["contact_email", "Email *"], ["contact_phone", "Phone"]];
+  const inputs = {};
+  const grid = el("div", { style: "display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(150px,1fr))" });
+  for (const [k, label] of fields) {
+    inputs[k] = el("input", { id: "mf_" + k, type: ["price", "arv", "beds", "baths", "sqft"].includes(k) ? "number" : (k === "contact_email" ? "email" : "text") });
+    grid.append(el("label", { class: "sub" }, label, inputs[k]));
+  }
+  inputs.details = el("textarea", { rows: 3, placeholder: "Condition, repairs, access, closing date, assignment terms…" });
+  const trap = el("input", { type: "text", tabindex: "-1", autocomplete: "off", style: "position:absolute;left:-9999px", "aria-hidden": "true" });
+  const msg = el("p", { class: "sub" });
+  const send = el("button", { type: "button", class: "primary", text: "Post deal" });
+  send.onclick = async () => {
+    const p = { website: trap.value, details: inputs.details.value };
+    for (const k of Object.keys(inputs)) if (k !== "details") p[k] = inputs[k].value.trim();
+    send.disabled = true; msg.textContent = "Posting…";
+    const { data, error } = await sb.rpc("post_deal", { p });
+    send.disabled = false;
+    if (error || !data || !data.ok) { msg.textContent = (data && data.error) || (error && error.message) || "Couldn't post the deal"; return; }
+    msg.textContent = data.live ? "Posted. It's live in Deals now." : "Thanks! It will appear after a quick review.";
+    if (data.live) loadMarket();
+  };
+  f.append(el("h3", { style: "margin:0 0 8px", text: "Post a deal" }), grid, el("label", { class: "sub" }, "Details", inputs.details), trap,
+    el("p", { class: "sub", text: "Only post properties you have the right to market (your own contract or listing)." }), send, msg);
+};
 $("vSvc").onclick = () => setView("svc");
 $("vLend").onclick = () => setView("lend");
 $("vBuy").onclick = () => setView("buy");
