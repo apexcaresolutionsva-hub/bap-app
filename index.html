@@ -459,6 +459,7 @@ tbody tr:last-child td { border-bottom: 0; }
 
 <section class="pipe hidden" id="svc" aria-label="Services">
   <div class="toolbar"><span class="count">Services</span><span class="spacer"></span><span class="sub" id="svcPlan"></span></div>
+  <div class="panel" id="healthPanel" style="margin-bottom:12px;display:none"></div>
   <div class="panel" id="billPanel" style="margin-bottom:12px"></div>
   <details class="panel" id="bizPanel"><summary style="cursor:pointer;font-weight:700">My business profile</summary>
     <p class="sub">Fill this in once. BAP uses it on your contracts (buying name, title company, earnest money, inspection days), on your deal pages, and to sign the emails it drafts to buyers, lenders and contractors.</p>
@@ -2074,7 +2075,29 @@ async function loadBilling() {
     setTimeout(loadBilling, 4000);
   }
 }
+/* ---------- System health (owner only): BAP's watchdog, every check green / yellow / red ---------- */
+async function loadHealth() {
+  const box = $("healthPanel"); if (!box) return;
+  const { data: h } = await sb.rpc("watchdog_status");
+  if (!h || !h.checks) { box.style.display = "none"; return; }          // only BAP's own account sees this
+  box.style.display = ""; box.textContent = "";
+  const icon = { ok: "\u2705", warn: "\ud83d\udfe1", fail: "\ud83d\udd34" };
+  const bad = h.checks.filter((c) => c.status !== "ok");
+  const ago = (t) => { if (!t) return ""; const m = Math.round((Date.now() - new Date(t)) / 60000); return m < 60 ? m + " min ago" : Math.round(m / 60) + " h ago"; };
+  box.append(el("h3", { style: "margin:0 0 6px", text: "System health" }),
+    el("p", { style: "margin:0 0 8px" }, el("b", { text: bad.length ? bad.length + " item" + (bad.length > 1 ? "s" : "") + " need attention" : "All systems normal" }),
+      el("span", { class: "sub", text: " \u00b7 checked every 15 minutes" })));
+  const list = el("div", { style: "display:grid;gap:6px" });
+  for (const c of [...bad, ...h.checks.filter((c) => c.status === "ok")]) {
+    list.append(el("div", { style: "display:flex;gap:8px;align-items:flex-start;font-size:.92rem" },
+      el("span", { text: icon[c.status] || "\u2754" }),
+      el("div", {}, el("b", { text: c.name }), el("span", { class: "sub", text: " \u00b7 " + c.area + (c.status !== "ok" && c.since ? " \u00b7 since " + ago(c.since) : "") }),
+        el("div", { class: "sub", text: c.detail || "" }))));
+  }
+  box.append(list);
+}
 async function loadServices() {
+  loadHealth();
   loadBilling();
   svcCache = null;
   const svc = await servicePrices();
