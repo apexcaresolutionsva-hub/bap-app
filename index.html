@@ -324,18 +324,7 @@ tbody tr:last-child td { border-bottom: 0; }
         <button class="mapbtn" id="myLoc" type="button" title="Use my location" aria-label="Use my location">📍</button>
         <select class="mapbtn" id="marketSel" aria-label="Jump to market">
           <option value="">Markets…</option>
-          <option value="dfw">Dallas–Fort Worth</option>
-          <option value="hou">Houston</option>
-          <option value="sat">San Antonio</option>
-          <option value="hr">Hampton Roads, VA</option>
-          <option value="cle">Cleveland, OH</option>
-          <option value="cin">Cincinnati, OH</option>
-          <option value="kc">Kansas City, MO</option>
-          <option value="orl">Orlando, FL</option>
-          <option value="nola">New Orleans, LA</option>
-          <option value="mont">Montgomery County, MD</option>
-          <option value="balt">Baltimore, MD</option>
-          <option value="buf">Buffalo, NY</option>
+          <option value="us">Entire US</option>
         </select>
         <button class="mapbtn" id="drawBtn" type="button">Draw area</button>
         <button class="mapbtn" id="heatBtn" type="button" aria-pressed="false">Heat map</button>
@@ -1380,28 +1369,27 @@ async function showAddressCard(q) {
   d4dPopup = new maplibregl.Popup({ offset: 28, maxWidth: "300px" }).setLngLat([a.lng, a.lat]).setDOMContent(box).addTo(leadMap);
 }
 
-/* ---------- market switcher: jump the map to a metro; remembered on this device ---------- */
-const MARKETS = {
-  dfw: { name: "Dallas–Fort Worth", b: [[-97.65, 32.45], [-96.4, 33.3]] },
-  hou: { name: "Houston", b: [[-95.95, 29.4], [-94.95, 30.2]] },
-  sat: { name: "San Antonio", b: [[-98.8, 29.2], [-98.2, 29.75]] },
-  hr: { name: "Hampton Roads, VA", b: [[-76.75, 36.6], [-75.95, 37.15]] },
-  cle: { name: "Cleveland, OH", b: [[-81.88, 41.39], [-81.53, 41.6]] },
-  cin: { name: "Cincinnati, OH", b: [[-84.72, 39.05], [-84.35, 39.25]] },
-  kc: { name: "Kansas City, MO", b: [[-94.75, 38.9], [-94.4, 39.25]] },
-  orl: { name: "Orlando, FL", b: [[-81.5, 28.4], [-81.2, 28.65]] },
-  nola: { name: "New Orleans, LA", b: [[-90.15, 29.9], [-89.9, 30.07]] },
-  mont: { name: "Montgomery County, MD", b: [[-77.5, 38.93], [-76.88, 39.36]] },
-  balt: { name: "Baltimore, MD", b: [[-76.72, 39.19], [-76.52, 39.38]] },
-  buf: { name: "Buffalo, NY", b: [[-78.92, 42.83], [-78.79, 42.97]] },
-};
+/* ---------- market switcher: built from the data, so every county with real leads shows up on its own ---------- */
+const MARKETS = { us: { name: "Entire US", b: [[-125, 24.3], [-66.9, 49.4]] } };
+async function loadMarkets() {
+  const sel = $("marketSel");
+  try {
+    const { data } = await sb.rpc("market_list");
+    for (const m of data || []) {
+      MARKETS[m.key] = { name: m.label, b: m.b };
+      sel.append(el("option", { value: m.key, text: m.label + " (" + Number(m.n).toLocaleString("en-US") + ")" }));
+    }
+  } catch (e) { /* the list keeps "Entire US" */ }
+  let k = null; try { k = localStorage.getItem("bapMarket"); } catch (e) { /* private mode */ }
+  if (k && MARKETS[k]) { sel.value = k; if (leadMap) leadMap.fitBounds(MARKETS[k].b, { padding: 20, duration: 0 }); }
+}
 $("marketSel").onchange = () => {
   const m = MARKETS[$("marketSel").value];
   if (!m) return;
   try { localStorage.setItem("bapMarket", $("marketSel").value); } catch (e) { /* private mode */ }
   if (leadMap) leadMap.fitBounds(m.b, { padding: 20, duration: 900 });
 };
-try { const k = localStorage.getItem("bapMarket"); if (k && MARKETS[k]) $("marketSel").value = k; } catch (e) { /* ignore */ }
+loadMarkets();
 
 /* ---------- draw an area on the map + heat map (PropStream-style) ---------- */
 let drawArea = null, drawing = null, heatOn = false;
