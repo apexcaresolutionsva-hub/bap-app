@@ -2036,8 +2036,47 @@ async function generateDocs(c, leadId, msg) {
   const w = window.open("", "_blank");
   if (!w) { msg.textContent = "Your browser blocked the new window. Allow pop-ups for this site and try again."; return; }
   w.document.write(html); w.document.close();
-  msg.textContent = charged ? "Charged $" + charged.toFixed(2) + ". Print or save as PDF, sign, then upload the signed copy here." :
-    "Generated (no charge). Print or save as PDF, sign, then upload the signed copy here.";
+  msg.textContent = charged ? "Charged $" + charged.toFixed(2) + ". Print or save as PDF, or send it for e-signature: " :
+    "Generated (no charge). Print or save as PDF, or send it for e-signature: ";
+  const plain = docs.map((d) => String(d.body).replace(/\{\{(\w+)\}\}/g, (m0, k) => (F[k] !== undefined && F[k] !== "" && F[k] !== null) ? String(F[k]) : "______________")).join("\n\n- - - - -\n\n");
+  const sendBtn = el("button", { type: "button", class: "primary small", text: "Send for e-signature" });
+  sendBtn.onclick = () => sendForEsign(c, main.name, plain, seller, buyerName, msg);
+  msg.append(sendBtn);
+}
+
+/* ---------- BAP e-sign: built in (members included; non-members pay the contract fee once) ---------- */
+const SIGN_URL = (t) => "https://app.buybap.com/sign/?t=" + t;
+function esignLinks(req) {
+  const box = el("div", { class: "panel", style: "margin-top:6px" });
+  box.append(el("b", { text: (req.status === "completed" ? "Fully signed: " : "Out for signature: ") + (req.title || "contract") }));
+  const label = { pending: "not opened yet", viewed: "opened", signed: "signed" };
+  for (const s of req.signers || []) {
+    const url = SIGN_URL(s.token), note = "Please review and sign: " + url;
+    const line = el("div", { style: "display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px" },
+      el("span", { text: s.name + (s.role ? " (" + s.role + ")" : "") + " · " + (label[s.status] || s.status) }));
+    const copy = el("button", { type: "button", class: "ghost small", text: "Copy link" });
+    copy.onclick = async () => { try { await navigator.clipboard.writeText(url); copy.textContent = "Copied"; } catch (e) { prompt("Copy this signing link:", url); } };
+    line.append(copy,
+      el("a", { href: "mailto:" + (s.email || "") + "?subject=" + encodeURIComponent("Please sign: " + (req.title || "contract")) + "&body=" + encodeURIComponent(note), text: "Email" }),
+      el("a", { href: "sms:?&body=" + encodeURIComponent(note), text: "Text" }),
+      el("a", { href: url, target: "_blank", rel: "noopener", text: s.status === "signed" ? "View" : "Open" }));
+    box.append(line);
+  }
+  return box;
+}
+async function sendForEsign(c, title, plain, otherName, myName, msg) {
+  const who = c.kind === "assignment" ? "end buyer" : "seller";
+  const oName = prompt("The " + who + "'s full legal name (they sign first):", otherName || "");
+  if (!oName) return;
+  const oEmail = prompt("The " + who + "'s email (optional, fills in the Email button):", "") || "";
+  const mName = prompt("Your full legal name:", myName || "");
+  if (!mName) return;
+  msg.textContent = "Creating signing links…";
+  const r = await sb.rpc("esign_create", { p_contract: c.id, p_title: title, p_body: plain,
+    p_signers: [{ name: oName.trim(), email: oEmail.trim(), role: who }, { name: mName.trim(), role: c.kind === "assignment" ? "assignor" : "buyer" }] });
+  if (r.error) { msg.textContent = r.error.message; return; }
+  msg.textContent = "Signing links are ready. Send the " + who + " their link, then sign yours.";
+  msg.append(esignLinks({ status: "out", title, signers: r.data.signers.map((s) => ({ ...s, status: "pending" })) }));
 }
 
 function contractRow(c, leadId, propertyId, dp, pp, org) {
@@ -2067,6 +2106,13 @@ function contractRow(c, leadId, propertyId, dp, pp, org) {
   if (c.status === "drafted") go("sent", "Mark sent");
   if (["drafted", "sent", "viewed"].includes(c.status)) go("signed", "Mark signed");
   if (!["signed", "voided"].includes(c.status)) go("voided", "Void");
+  btn("E-sign status", async () => {
+    const r = await sb.rpc("esign_status", { p_contract: c.id });
+    msg.textContent = "";
+    if (r.error) { msg.textContent = r.error.message; return; }
+    if (!r.data || !r.data.length) { msg.textContent = "Not sent for e-signature yet. Generate the contract, then tap Send for e-signature."; return; }
+    msg.append(esignLinks(r.data[0]));
+  });
   // documents: the attorney-template draft and the signed copy, stored privately per company
   const files = el("div", { class: "row2" });
   const openBtn = (label, path) => { const b = el("button", { class: "link", type: "button", text: label });
