@@ -1642,6 +1642,9 @@ async function loadMarket() {
     if (facts) card.append(el("div", { text: facts }));
     const row = el("div", { style: "display:flex;gap:6px;flex-wrap:wrap" });
     const gq = encodeURIComponent(where);
+    const open = el("button", { type: "button", class: "primary small", text: "Open in BAP" });
+    open.onclick = async () => { setView("leads"); $("mapQ").value = where; await showAddressCard(where); };
+    row.append(open);
     row.append(el("a", { href: d.lat ? `https://www.google.com/maps/search/?api=1&query=${d.lat},${d.lng}` : `https://www.google.com/maps/search/?api=1&query=${gq}`, target: "_blank", rel: "noopener", text: "Map" }));
     if (d.lat) row.append(el("a", { href: `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${d.lat},${d.lng}`, target: "_blank", rel: "noopener", text: "Street View" }));
     if (d.url) row.append(el("a", { href: d.url, target: "_blank", rel: "noopener", text: d.source_kind === "land_bank" ? "How to buy" : "View listing" }));
