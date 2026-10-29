@@ -2623,8 +2623,16 @@ function proFinder(kind, mount) {
     const z = (zip.value.match(/\d{5}/) || [])[0];
     if (!z) { msg.textContent = "Enter a 5-digit ZIP code."; return; }
     msg.textContent = "Searching…"; out.textContent = ""; picked.clear(); refreshSend(); pkg.textContent = "";
-    const { data, error } = await sb.rpc("directory_top", { p_kind: kind, p_zip: z, p_category: cat.value || null, p_limit: 5 });
+    let { data, error } = await sb.rpc("directory_top", { p_kind: kind, p_zip: z, p_category: cat.value || null, p_limit: 5 });
     if (error) { msg.textContent = "Couldn't search: " + error.message; return; }
+    if ((data || []).length < 5) {
+      // cold start: pull top-rated local businesses from Google (saved 30 days, shown as not yet verified), then search again
+      msg.textContent = "Finding top-rated local " + (kind === "lender" ? "lenders" : "contractors") + "…";
+      const fill = await sb.functions.invoke("places-fill", { body: { kind, zip: z, category: cat.value || (kind === "lender" ? "hard_money" : "general") } }).catch(() => null);
+      if (fill && fill.data && (fill.data.saved || fill.data.cached))
+        ({ data, error } = await sb.rpc("directory_top", { p_kind: kind, p_zip: z, p_category: cat.value || null, p_limit: 5 }));
+      msg.textContent = "";
+    }
     msg.textContent = (data || []).length ? "" : "No " + (kind === "lender" ? "lenders" : "contractors") + " listed for that area yet. Share the sign-up link above, or add your own below.";
     for (const p of data || []) out.append(proCard(kind, p, picked, refreshSend));
   };
