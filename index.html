@@ -2948,7 +2948,8 @@ function joinBanner(kind) {
   const b = el("button", { class: "ghost small", type: "button", text: "Copy sign-up link" });
   b.onclick = async () => { try { await navigator.clipboard.writeText(JOIN_URL()); b.textContent = "Copied"; } catch (e) { prompt("Copy this link", JOIN_URL()); } };
   return el("p", { class: "sub", style: "margin:6px 0 10px" }, (kind === "lender" ? "Lenders" : "Contractors") +
-    " can list themselves in the BAP directory for free at " + JOIN_URL().replace(/^https?:\/\//, "") + " ", b);
+    " can list themselves in the BAP directory for free: ",
+    el("a", { href: JOIN_URL(), target: "_blank", rel: "noopener", text: JOIN_URL().replace(/^https?:\/\//, "") }), " ", b);
 }
 
 function proFinder(kind, mount) {
