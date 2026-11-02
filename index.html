@@ -1837,13 +1837,15 @@ async function renderPipePanel(propertyId, pp) {
   for (const ph of phones) {
     const flags = [ph.on_dnc ? "Do Not Call list" : null, ph.litigator ? "Litigator" : null, ph.deceased ? "Deceased" : null,
       ph.opted_out ? "Asked not to be contacted" : null].filter(Boolean);
-    pp.append(el("div", { class: "ctr" }, el("b", { text: fmtPhone(ph.value) }), " ",
+    const row = el("div", { class: "ctr" }, el("b", { text: fmtPhone(ph.value) }), " ",
       el("span", { class: "sub", text: [ph.name + (ph.owner ? " (owner)" : ""), ph.line_type].filter(Boolean).join(", ") }), " ",
-      ...flags.map((f) => el("span", { class: "badge warn", text: f }))));
+      ...flags.map((f) => el("span", { class: "badge warn", text: f })));
+    row.append(textPermissionRow(L.id, ph, () => renderPipePanel(propertyId, pp)));
+    pp.append(row);
   }
   for (const em of data.emails || []) pp.append(el("div", { class: "sub", text: em.value + " (" + em.name + ")" }));
-  if (phones.length) pp.append(el("p", { class: "note", text: "Calling and texting stay off until BAP's Texas telemarketing registration is filed. " +
-    "Numbers on the Do Not Call list can't be cold-called even then." }));
+  if (phones.length) pp.append(el("p", { class: "note", text: "Texting is locked on every number until you record permission to text. " +
+    "Get it first by phone, mail, a form or in person; never by a cold text. Numbers on the Do Not Call list can't be cold-called." }));
   const hist = el("ul", { class: "hist" });
   for (const h of data.history || []) hist.append(el("li", {}, el("time", { text: when(h.at) }), h.body || ""));
   pp.append(el("h3", { text: "History", style: "margin-top:14px" }), hist);
@@ -1851,6 +1853,84 @@ async function renderPipePanel(propertyId, pp) {
   const dp = el("div", { class: "panel", id: "dealPanel" }); pp.after(dp); renderDealPanel(L.id, propertyId, dp, pp);
 }
 
+
+/* ---------- permission to text (consent) + texting lock ---------- */
+const CONSENT_METHODS = { phone_call: "Said yes on a phone call", inbound_text: "They texted us first", inbound_call: "They called us first",
+  web_form: "Website or QR form with a texting checkbox", in_person: "Said yes in person", written: "Signed or written permission", other: "Other" };
+const CONSENT_AUTO = { sms_keyword: "Texted START to opt back in" };
+const rpcErr = (r) => (r.error && (r.error.message || String(r.error))) || "";
+function textPermissionRow(leadId, ph, refresh) {
+  const box = el("div", { class: "row2", style: "margin-top:6px;flex-wrap:wrap;gap:8px;align-items:center" });
+  const msg = el("span", { class: "sub", role: "status" });
+  if (ph.text_lock) {
+    box.append(el("span", { class: "badge warn", text: "Texting locked" }), el("span", { class: "sub", text: ph.text_lock }));
+    const blocked = ph.opted_out || ph.litigator || ph.deceased;
+    if (!blocked && ph.id) {
+      const btn = el("button", { class: "small", type: "button", text: "Record permission to text" });
+      btn.onclick = () => { btn.remove(); box.append(consentForm(ph, refresh)); };
+      box.append(btn);
+    }
+    return box;
+  }
+  const c = ph.consent || {};
+  const how = CONSENT_METHODS[c.method] || CONSENT_AUTO[c.method] || (c.method === "web_form" ? CONSENT_METHODS.web_form : c.method || "on file");
+  box.append(el("span", { class: "badge signed", text: "OK to text" }),
+    el("span", { class: "sub", text: how + (c.at ? " · " + when(c.at) : "") + (c.evidence ? " · " + c.evidence : "") }));
+  const textBtn = el("button", { class: "small primary", type: "button", text: "Text" });
+  const remove = el("button", { class: "link", type: "button", text: "Remove permission" });
+  remove.onclick = async () => {
+    if (!confirm("Remove permission to text " + ph.value + "? Texting will lock again.")) return;
+    const r = await sb.rpc("text_consent_revoke", { p_point: ph.id, p_note: null });
+    if (r.error) { msg.textContent = rpcErr(r); return; }
+    refresh();
+  };
+  textBtn.onclick = () => {
+    textBtn.disabled = true;
+    const ta = el("textarea", { placeholder: "Your text. BAP adds your business name and \"Reply STOP to opt out\" to the first message.", maxlength: "480" });
+    const send = el("button", { class: "primary small", type: "button", text: "Send text" });
+    const cancel = el("button", { class: "link", type: "button", text: "Cancel" });
+    const f = el("div", { style: "width:100%;margin-top:6px" }, ta, el("div", { class: "row2", style: "margin-top:6px" }, send, cancel));
+    cancel.onclick = () => { f.remove(); textBtn.disabled = false; };
+    send.onclick = async () => {
+      if (!ta.value.trim()) { msg.textContent = "Write a message first."; return; }
+      send.disabled = true; msg.textContent = "Queuing…";
+      const r = await sb.rpc("queue_text", { p_lead: leadId, p_body: ta.value, p_point: ph.id });
+      send.disabled = false;
+      if (r.error) { msg.textContent = rpcErr(r); return; }
+      msg.textContent = "Queued. It goes out within a few minutes during allowed hours (practice mode logs it without sending).";
+      f.remove(); textBtn.disabled = false;
+    };
+    box.append(f);
+  };
+  box.append(textBtn, remove, msg);
+  return box;
+}
+function consentForm(ph, refresh) {
+  const sel = el("select", {}, el("option", { value: "", text: "How did they give permission?" }),
+    ...Object.entries(CONSENT_METHODS).map(([v, t]) => el("option", { value: v, text: t })));
+  const ev = el("input", { type: "text", maxlength: "300", placeholder: "Details, e.g. \"Called 11/2, owner said text me the offer\"" });
+  const attest = el("input", { type: "checkbox" });
+  const save = el("button", { class: "primary small", type: "button", text: "Save permission" });
+  const msg = el("span", { class: "sub", role: "status" });
+  const f = el("div", { class: "panel", style: "width:100%;margin-top:6px;padding:10px" },
+    el("label", {}, "How you got permission", sel),
+    el("label", {}, "Details (who, when, what they said)", ev),
+    el("label", { style: "display:flex;gap:8px;align-items:flex-start;margin-top:8px" }, attest,
+      el("span", { text: "I confirm " + (ph.name || "this person") + " gave me permission to text " + ph.value +
+        " about their property. I'm responsible for having this permission and will stop if they say STOP." })),
+    el("div", { class: "row2", style: "margin-top:8px" }, save, msg));
+  save.onclick = async () => {
+    if (!sel.value) { msg.textContent = "Pick how you got permission."; return; }
+    if (sel.value === "other" && !ev.value.trim()) { msg.textContent = "Describe how you got permission."; return; }
+    if (!attest.checked) { msg.textContent = "Check the box to confirm."; return; }
+    save.disabled = true; msg.textContent = "Saving…";
+    const r = await sb.rpc("text_consent_grant", { p_point: ph.id, p_method: sel.value, p_evidence: ev.value, p_attest: true });
+    save.disabled = false;
+    if (r.error) { msg.textContent = rpcErr(r); return; }
+    refresh();
+  };
+  return f;
+}
 
 /* ---------- offers & contracts (Tab 2) ---------- */
 const KIND = { purchase: "Purchase", assignment: "Assignment" };
