@@ -66,6 +66,9 @@ header.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; d
 .views { display: flex; gap: 4px; }
 .bar .views button { border-color: transparent; opacity: .8; }
 .bar .views button[aria-pressed="true"] { border-color: currentColor; opacity: 1; font-weight: 600; }
+.bar .views .secStart { margin-left: 10px; position: relative; }
+.bar .views .secStart::before { content: ""; position: absolute; left: -8px; top: 20%; bottom: 20%; border-left: 1px solid currentColor; opacity: .35; }
+.bar .views .moreBtn, .moreSheet { display: none; }
 .pipe { padding: 18px 22px; }
 .stages { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
 .stages button { background: var(--bg); border: 1px solid var(--line); border-radius: 14px; padding: 4px 12px; cursor: pointer; font-size: 13px; }
@@ -262,6 +265,13 @@ tbody tr:last-child td { border-bottom: 0; }
     border-top: 1px solid rgba(255, 255, 255, .18); box-shadow: 0 -4px 14px rgba(10, 20, 35, .15); }
   .bar .views button { flex: 1 0 64px; border: 0; border-radius: 8px; padding: 9px 4px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .bar .views button[aria-pressed="true"] { background: rgba(255, 255, 255, .18); }
+  .bar .views .sec { display: none; }
+  .bar .views .moreBtn { display: block; }
+  .moreSheet:not(.hidden) { display: grid; position: fixed; right: 8px; bottom: calc(70px + env(safe-area-inset-bottom, 0px)); z-index: 13;
+    min-width: 200px; padding: 6px; gap: 2px; background: var(--bg); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 12px; box-shadow: 0 8px 28px rgba(10, 20, 35, .25); }
+  .moreSheet button { text-align: left; padding: 12px 14px; border: 0; border-radius: 8px; background: transparent; color: inherit; font: inherit; font-size: 15px; cursor: pointer; }
+  .moreSheet button[aria-current="true"] { background: var(--panel); font-weight: 600; }
   .toolbar { gap: 8px; }
   .toolbar .count { width: 100%; order: -1; }
   .table-wrap { overflow: visible; border: 0; border-radius: 0; }
@@ -300,15 +310,18 @@ tbody tr:last-child td { border-bottom: 0; }
 <header class="bar">
   <span class="mark">BAP</span>
   <nav class="views hidden" id="views" aria-label="Views">
+    <!-- order follows the deal: find it, talk to the seller, work it, put it under contract, sell it.
+         Mobile shows the first four plus More (tab bars work best with 5 slots or fewer). -->
     <button type="button" id="vLeads" aria-pressed="true">Leads</button>
-    <button type="button" id="vMkt" aria-pressed="false">Deals</button>
-    <button type="button" id="vPipe" aria-pressed="false">Pipeline</button>
     <button type="button" id="vInbox" aria-pressed="false">Inbox <span class="ibBadge hidden" id="inboxBadge"></span></button>
+    <button type="button" id="vPipe" aria-pressed="false">Pipeline</button>
     <button type="button" id="vDeals" aria-pressed="false">Contracts</button>
-    <button type="button" id="vLend" aria-pressed="false">Lenders</button>
-    <button type="button" id="vBuy" aria-pressed="false">Buyers</button>
-    <button type="button" id="vCrew" aria-pressed="false">Contractors</button>
-    <button type="button" id="vSvc" aria-pressed="false">Services</button>
+    <button type="button" id="vBuy" class="sec" aria-pressed="false">Buyers</button>
+    <button type="button" id="vMkt" class="sec secStart" aria-pressed="false">Deals for sale</button>
+    <button type="button" id="vLend" class="sec" aria-pressed="false">Lenders</button>
+    <button type="button" id="vCrew" class="sec" aria-pressed="false">Contractors</button>
+    <button type="button" id="vSvc" class="sec" aria-pressed="false">Services</button>
+    <button type="button" id="vMore" class="moreBtn" aria-pressed="false" aria-haspopup="menu" aria-expanded="false">More</button>
   </nav>
   <span class="spacer"></span>
   <span class="who" id="who"></span>
@@ -1674,6 +1687,10 @@ function setView(v) {
   $("vLeads").setAttribute("aria-pressed", String(v === "leads")); $("vPipe").setAttribute("aria-pressed", String(v === "pipe"));
   $("vDeals").setAttribute("aria-pressed", String(v === "deals"));
   $("inbox").classList.toggle("hidden", v !== "inbox"); $("vInbox").setAttribute("aria-pressed", String(v === "inbox")); if (v === "inbox") { loadInbox(); ibBadge(); }
+  const secV = { buy: "vBuy", mkt: "vMkt", lend: "vLend", crew: "vCrew", svc: "vSvc" };
+  $("vMore").setAttribute("aria-pressed", String(v in secV));
+  for (const b of document.querySelectorAll("#moreSheet button")) b.setAttribute("aria-current", String(b.dataset.for === secV[v]));
+  if (!PRACTICE && v && v !== setView._last) { setView._last = v; sb.rpc("log_tab", { p_tab: v }).then(() => {}, () => {}); }  // real usage, to keep this order honest
   if (v === "pipe") loadPipeline();
   if (v === "deals") loadVault();
 }
@@ -1941,6 +1958,21 @@ function ibLinkForm(pid, t, refresh) {
   return f;
 }
 $("vInbox").onclick = () => setView("inbox");
+/* phone: secondary tabs live under More */
+(function moreMenu() {
+  const more = $("vMore");
+  const sheet = el("div", { id: "moreSheet", class: "moreSheet hidden", role: "menu", "aria-label": "More" });
+  for (const b of document.querySelectorAll("#views button.sec")) {
+    const i = el("button", { type: "button", role: "menuitem", text: b.textContent, "data-for": b.id });
+    i.onclick = () => { close(); b.click(); };
+    sheet.append(i);
+  }
+  document.body.append(sheet);
+  function close() { sheet.classList.add("hidden"); more.setAttribute("aria-expanded", "false"); }
+  more.onclick = (e) => { e.stopPropagation(); const open = !sheet.classList.toggle("hidden"); more.setAttribute("aria-expanded", String(open)); if (open) sheet.querySelector("button")?.focus(); };
+  document.addEventListener("click", (e) => { if (!sheet.contains(e.target)) close(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !sheet.classList.contains("hidden")) { close(); more.focus(); } });
+})();
 $("ibRefresh").onclick = () => { loadInbox(); ibBadge(); if (ibOpen) openThread(ibOpen); };
 function stageButtons() {
   const box = $("pStages"); box.textContent = "";
