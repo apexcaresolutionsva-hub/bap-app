@@ -473,11 +473,14 @@ tbody tr:last-child td { border-bottom: 0; }
   <div class="toolbar"><span class="count">Services</span><span class="spacer"></span><span class="sub" id="svcPlan"></span></div>
   <div class="panel" id="healthPanel" style="margin-bottom:12px;display:none"></div>
   <div class="panel" id="billPanel" style="margin-bottom:12px"></div>
-  <details class="panel" id="bizPanel"><summary style="cursor:pointer;font-weight:700">My business profile</summary>
+  <details class="panel" id="bizPanel"><summary style="cursor:pointer;font-weight:700">My business profile <span class="sub" style="font-weight:400">(optional)</span></summary>
     <p class="sub">Fill this in once. BAP uses it on your contracts (buying name, title company, earnest money, inspection days), on your deal pages, and to sign the emails it drafts to buyers, lenders and contractors.</p>
     <div class="grid4" id="bizForm"></div>
     <div class="row2" style="margin-top:8px"><button class="primary small" id="bizSave" type="button">Save profile</button><span class="sub" id="bizMsg" role="status"></span></div>
   </details>
+  <h3 style="margin:18px 0 6px">Add-ons</h3>
+  <p class="sub" style="margin:0 0 8px">Turn on only what you need. Each add-on asks for its own setup details when you switch it on, not before.</p>
+  <div id="addonCards"></div>
   <p class="sub" style="margin-top:12px">Pay only when you use them. Members get lower prices. Charges are recorded on your BAP account.</p>
   <div class="table-wrap"><table>
     <thead><tr><th>Service</th><th>What you get</th><th class="num">Your price</th><th class="num">Member</th><th class="num">Non-member</th></tr></thead>
@@ -821,7 +824,6 @@ async function renderBizPanel() {
   const box = $("bizForm"); const b = await biz(true);
   box.textContent = "";
   for (const [k, lab] of BIZ_FIELDS) box.append(el("label", {}, lab, el("input", { "data-k": k, value: b[k] || "" })));
-  $("bizPanel").open = !b.business_name;
   $("bizSave").onclick = async () => {
     const p = {}; for (const i of box.querySelectorAll("input[data-k]")) p[i.dataset.k] = i.value.trim();
     const r = await sb.rpc("save_business", { p });
@@ -1809,6 +1811,7 @@ async function renderPipePanel(propertyId, pp) {
     if (!$("pipe").classList.contains("hidden")) loadPipeline();
   };
   const phones = data.phones || [];
+  const textingOn = data.texting === undefined || data.texting === "active";
   pp.append(el("h3", { text: "Owner contact info", style: "margin-top:14px" }));
   const fmtPhone = (v) => { const d = String(v).replace(/\D/g, "").slice(-10); return d.length === 10 ? "(" + d.slice(0, 3) + ") " + d.slice(3, 6) + "-" + d.slice(6) : v; };
   const tmsg = el("span", { class: "sub", role: "status" });
@@ -1840,12 +1843,18 @@ async function renderPipePanel(propertyId, pp) {
     const row = el("div", { class: "ctr" }, el("b", { text: fmtPhone(ph.value) }), " ",
       el("span", { class: "sub", text: [ph.name + (ph.owner ? " (owner)" : ""), ph.line_type].filter(Boolean).join(", ") }), " ",
       ...flags.map((f) => el("span", { class: "badge warn", text: f })));
-    row.append(textPermissionRow(L.id, ph, () => renderPipePanel(propertyId, pp)));
+    if (textingOn) row.append(textPermissionRow(L.id, ph, () => renderPipePanel(propertyId, pp)));
     pp.append(row);
   }
   for (const em of data.emails || []) pp.append(el("div", { class: "sub", text: em.value + " (" + em.name + ")" }));
-  if (phones.length) pp.append(el("p", { class: "note", text: "Texting is locked on every number until you record permission to text. " +
+  if (phones.length && textingOn) pp.append(el("p", { class: "note", text: "Texting is locked on every number until you record permission to text. " +
     "Get it first by phone, mail, a form or in person; never by a cold text. Numbers on the Do Not Call list can't be cold-called." }));
+  if (phones.length && !textingOn) {
+    const go = el("button", { class: "link", type: "button", text: "Turn on Texting in Services" });
+    go.onclick = () => { closeDrawerIfOpen(); setView("svc"); setTimeout(() => $("addonCards")?.scrollIntoView({ block: "start", behavior: "smooth" }), 300); };
+    pp.append(el("p", { class: "note" }, data.texting === "requested" ? "Texting setup is in progress. " : "Want to text owners who gave you permission? ", go,
+      data.texting === "requested" ? " to check its status." : " (optional add-on)."));
+  }
   const hist = el("ul", { class: "hist" });
   for (const h of data.history || []) hist.append(el("li", {}, el("time", { text: when(h.at) }), h.body || ""));
   pp.append(el("h3", { text: "History", style: "margin-top:14px" }), hist);
@@ -1928,6 +1937,56 @@ function consentForm(ph, refresh) {
     save.disabled = false;
     if (r.error) { msg.textContent = rpcErr(r); return; }
     refresh();
+  };
+  return f;
+}
+
+/* ---------- add-ons: switched on one at a time, setup asked only then ---------- */
+function closeDrawerIfOpen() { try { if (typeof closeDetail === "function") closeDetail(); } catch (e) { /* ignore */ } }
+async function renderAddons() {
+  const box = $("addonCards"); if (!box) return; box.textContent = "";
+  const { data, error } = await sb.rpc("my_activations");
+  const t = (data && data.texting) || { status: error ? "unknown" : "off" };
+  const card = el("div", { class: "panel", style: "margin-bottom:10px" });
+  const badge = { active: ["On", "badge signed"], requested: ["Setup in progress", "badge"], rejected: ["Needs changes", "badge warn"], off: ["Off", "badge"], unknown: ["", "badge"] }[t.status] || ["Off", "badge"];
+  card.append(el("div", { class: "row2", style: "align-items:center;gap:8px" }, el("b", { text: "Texting" }), badge[0] ? el("span", { class: badge[1], text: badge[0] }) : null),
+    el("p", { class: "sub", style: "margin:6px 0", text: "Text sellers who gave you permission (they texted you, filled out a form, or said yes on a call), from your own registered business number. " +
+      "Phone carriers require every business that texts to register its legal business details, so this add-on asks for them when you turn it on. " +
+      "Carrier fees are passed through at cost: about $15–20 once for registration, $1.50–$10 a month for your campaign, and about $1.15 a month per number, plus a small per-text charge." }));
+  if (t.status === "active") card.append(el("p", { class: "note", text: "Texting is on. Open a lead in your pipeline, record permission on a phone number, then use Text." }));
+  else if (t.status === "requested") card.append(el("p", { class: "note", text: "We received your details" + (t.requested_at ? " on " + when(t.requested_at) : "") + ". BAP registers your business with the carriers; approval usually takes 1–3 weeks. We'll switch texting on when it's approved." }));
+  else {
+    if (t.status === "rejected" && t.note) card.append(el("p", { class: "msg err", text: t.note }));
+    const btn = el("button", { class: "primary small", type: "button", text: "Set up texting" });
+    btn.onclick = async () => { btn.remove(); card.append(await textingSetupForm(() => renderAddons())); };
+    card.append(btn);
+  }
+  box.append(card);
+}
+async function textingSetupForm(done) {
+  const b = await biz(false).catch(() => ({})) || {};
+  const f = el("div", { style: "margin-top:8px" });
+  const fields = [["legal_name", "Legal business name (exactly as on your EIN letter)", b.business_name || ""], ["ein", "EIN (federal tax ID, 9 digits)", ""],
+    ["address", "Business address (not a home address if you can avoid it)", b.address || ""], ["website", "Business website", b.website || ""],
+    ["contact_name", "Contact person", b.signer_name || ""], ["contact_email", "Contact email (on your business domain if you have one)", b.email || ""],
+    ["contact_phone", "Contact phone", b.phone || ""]];
+  const grid = el("div", { class: "grid4" });
+  for (const [k, lab, v] of fields) grid.append(el("label", {}, lab, el("input", { "data-k": k, value: v })));
+  const agree = el("input", { type: "checkbox" });
+  const save = el("button", { class: "primary small", type: "button", text: "Submit for registration" });
+  const cancel = el("button", { class: "link", type: "button", text: "Cancel" });
+  const msg = el("span", { class: "sub", role: "status" });
+  f.append(grid, el("label", { style: "display:flex;gap:8px;align-items:flex-start;margin-top:8px" }, agree,
+    el("span", { text: "I will only text people who gave me permission first, honor STOP right away, and I'm responsible for the texts I send. I understand cold texting purchased or skip-traced lists isn't allowed and can get my texting shut off." })),
+    el("div", { class: "row2", style: "margin-top:8px" }, save, cancel, msg));
+  cancel.onclick = done;
+  save.onclick = async () => {
+    const p = { agree: agree.checked }; for (const i of grid.querySelectorAll("input[data-k]")) p[i.dataset.k] = i.value.trim();
+    save.disabled = true; msg.textContent = "Submitting…";
+    const r = await sb.rpc("request_service_activation", { p_key: "texting", p_details: p });
+    save.disabled = false;
+    if (r.error) { msg.textContent = r.error.message; return; }
+    done();
   };
   return f;
 }
@@ -2341,6 +2400,7 @@ async function loadHealth() {
 async function loadServices() {
   loadHealth();
   loadBilling();
+  renderAddons();
   svcCache = null;
   const svc = await servicePrices();
   const rows = $("svcRows"); rows.textContent = "";
