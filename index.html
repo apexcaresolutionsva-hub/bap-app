@@ -90,6 +90,40 @@ header.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; d
 .badge.warn { background: var(--sale-bg); color: var(--sale); }
 .small { padding: 4px 10px; font-size: 13px; }
 @media (max-width: 860px) { .pipe { padding: 14px; } .bar .who { display: none; } }
+/* inbox */
+.ibBadge { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: var(--sale); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
+.ibBadge.hidden { display: none; }
+.ibWrap { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; gap: 14px; align-items: start; }
+.ibList { display: grid; gap: 6px; max-height: 72vh; overflow: auto; }
+.ibItem { text-align: left; display: grid; gap: 3px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--ink); cursor: pointer; font: inherit; }
+.ibItem:hover, .ibItem.on { border-color: var(--brand); }
+.ibItem.on { background: var(--panel); }
+.ibItem.unread b::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--focus); margin-right: 6px; vertical-align: middle; }
+.ibItem.unread .ibPrev { color: var(--ink); font-weight: 600; }
+.ibTop { display: flex; justify-content: space-between; gap: 8px; }
+.ibTop time { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.ibPrev { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ibTags { display: flex; gap: 4px; flex-wrap: wrap; }
+.ibTags:empty { display: none; }
+.ibThread { border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; background: var(--panel); min-height: 300px; min-width: 0; }
+.ibHead { display: grid; gap: 4px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.ibMode { margin-top: 6px; }
+.ibMsgs { list-style: none; margin: 10px 0; padding: 0 2px; display: flex; flex-direction: column; gap: 8px; max-height: 48vh; overflow: auto; }
+.ibMsg { max-width: 78%; padding: 8px 11px; border-radius: 14px; background: var(--bg); border: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ibMsg.out { align-self: flex-end; background: var(--brand); color: var(--brand-ink); border-color: var(--brand); }
+.ibMsg.out a { color: inherit; }
+.ibMsg.pending { opacity: .7; border-style: dashed; }
+.ibMsg time, .ibSys time { display: block; font-size: 11px; opacity: .75; margin-top: 3px; }
+.ibSys { align-self: center; text-align: center; font-size: 13px; color: var(--muted); max-width: 90%; overflow-wrap: anywhere; }
+.ibReply textarea { width: 100%; min-height: 70px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--ink); font: inherit; resize: vertical; }
+.ibBack { display: none; margin-bottom: 8px; }
+@media (max-width: 860px) {
+  .ibWrap { grid-template-columns: 1fr; }
+  #inbox.ib-open .ibList, #inbox.ib-open #ibFilters { display: none; }
+  #inbox:not(.ib-open) .ibThread { display: none; }
+  .ibBack { display: inline-block; }
+  .ibMsg { max-width: 88%; }
+}
 
 /* sign in */
 .auth { max-width: 380px; margin: 12vh auto; padding: 0 20px; }
@@ -269,6 +303,7 @@ tbody tr:last-child td { border-bottom: 0; }
     <button type="button" id="vLeads" aria-pressed="true">Leads</button>
     <button type="button" id="vMkt" aria-pressed="false">Deals</button>
     <button type="button" id="vPipe" aria-pressed="false">Pipeline</button>
+    <button type="button" id="vInbox" aria-pressed="false">Inbox <span class="ibBadge hidden" id="inboxBadge"></span></button>
     <button type="button" id="vDeals" aria-pressed="false">Contracts</button>
     <button type="button" id="vLend" aria-pressed="false">Lenders</button>
     <button type="button" id="vBuy" aria-pressed="false">Buyers</button>
@@ -399,6 +434,17 @@ tbody tr:last-child td { border-bottom: 0; }
   </div>
 </section>
 
+<section class="pipe hidden" id="inbox" aria-label="Inbox">
+  <div class="toolbar">
+    <span class="count" id="ibCount">Inbox</span>
+    <span class="spacer"></span>
+    <button class="small" id="ibRefresh" type="button">Refresh</button>
+  </div>
+  <p class="sub" style="margin:0 0 10px">Everyone who called or texted your BAP number, including people BAP hasn't matched to a property yet.</p>
+  <div class="stages" id="ibFilters"></div>
+  <div class="ibWrap"><div class="ibList" id="ibList"></div><div class="ibThread" id="ibThread"><p class="sub">Pick a conversation.</p></div></div>
+</section>
+
 <section class="pipe hidden" id="deals" aria-label="Contracts">
   <div class="toolbar">
     <span class="count" id="dCount">Contracts</span>
@@ -506,7 +552,7 @@ const PRACTICE = (() => { try { return location.hash === "#practice" || location
 const PRACTICE_READS = new Set(["lead_map", "lead_search", "lead_facets", "lead_detail", "lead_counties", "lead_kind_counts", "lead_models",
   "my_deal_models", "match_contacts", "deal_for_lead", "deal_for_listing", "contract_library", "contract_vault", "rehab_for_lead", "public_deal",
   "pipeline_list", "pipeline_lead", "my_usage", "my_services", "my_deal_targets", "my_business", "match_my_buyers", "map_coverage",
-  "list_states", "directory_top", "property_valuation", "geocode_address"]);
+  "list_states", "directory_top", "property_valuation", "geocode_address", "inbox_list", "inbox_thread", "inbox_unread"]);
 function practiceToast(text) {
   let t = document.getElementById("practiceToast");
   if (!t) { t = document.createElement("div"); t.id = "practiceToast"; t.setAttribute("role", "status");
@@ -696,14 +742,14 @@ let state = { page: 0, total: 0, rows: [] };
 let signUp = false;
 
 /* ---------- auth ---------- */
-function showAuth() { $("auth").classList.remove("hidden"); $("app").classList.add("hidden"); $("pipe").classList.add("hidden"); $("deals").classList.add("hidden"); $("svc").classList.add("hidden"); $("lend").classList.add("hidden"); $("buy").classList.add("hidden"); $("crew").classList.add("hidden"); $("views").classList.add("hidden"); $("signout").classList.add("hidden"); $("practiceBtn").classList.add("hidden"); $("who").textContent = ""; }
+function showAuth() { $("auth").classList.remove("hidden"); $("app").classList.add("hidden"); $("pipe").classList.add("hidden"); $("deals").classList.add("hidden"); $("svc").classList.add("hidden"); $("lend").classList.add("hidden"); $("buy").classList.add("hidden"); $("crew").classList.add("hidden"); $("inbox").classList.add("hidden"); clearInterval(ibTimer); $("views").classList.add("hidden"); $("signout").classList.add("hidden"); $("practiceBtn").classList.add("hidden"); $("who").textContent = ""; }
 let shownFor = null;
 async function showApp(user) {
   if (shownFor === user.id) return;          // sign-in fires more than one auth event; build the screen once
   shownFor = user.id;
   $("auth").classList.add("hidden"); $("app").classList.remove("hidden");
   $("signout").classList.remove("hidden"); $("practiceBtn").classList.toggle("hidden", PRACTICE); $("practiceBtn").onclick = enterPractice; $("who").textContent = user.email; $("views").classList.remove("hidden");
-  await loadCounties(); await buildStaticFilters(); await loadSaved(); updateFacets(filters()); initMap(); bizNudge();
+  await loadCounties(); await buildStaticFilters(); await loadSaved(); updateFacets(filters()); initMap(); bizNudge(); ibStartPolling();
 }
 $("authSwap").onclick = () => {
   signUp = !signUp;
@@ -1627,6 +1673,7 @@ function setView(v) {
   $("vSvc").setAttribute("aria-pressed", String(v === "svc")); if (v === "svc") { loadServices(); renderBizPanel(); }
   $("vLeads").setAttribute("aria-pressed", String(v === "leads")); $("vPipe").setAttribute("aria-pressed", String(v === "pipe"));
   $("vDeals").setAttribute("aria-pressed", String(v === "deals"));
+  $("inbox").classList.toggle("hidden", v !== "inbox"); $("vInbox").setAttribute("aria-pressed", String(v === "inbox")); if (v === "inbox") { loadInbox(); ibBadge(); }
   if (v === "pipe") loadPipeline();
   if (v === "deals") loadVault();
 }
@@ -1734,6 +1781,167 @@ $("dStatus").onchange = () => loadVault();
 $("vLeads").onclick = () => setView("leads");
 $("vPipe").onclick = () => setView("pipe");
 $("pDue").onchange = () => loadPipeline();
+
+/* ---------- Inbox: every caller and texter on your BAP number, matched to a property or not ---------- */
+const IB_FILTERS = [["all", "All"], ["needs_reply", "Needs reply"], ["unlinked", "Not matched to a property"]];
+var ibFilter = "all", ibOpen = null, ibTimer = null;
+const ibPhone = (p) => { const d = String(p || "").replace(/\D/g, "").slice(-10); return d.length === 10 ? "(" + d.slice(0, 3) + ") " + d.slice(3, 6) + "-" + d.slice(6) : (p || ""); };
+const ibName = (n, p) => (!n || /^New contact /.test(n)) ? ibPhone(p) : n;
+function ibText(s) {   // plain text with web links made clickable (no HTML from messages is ever rendered)
+  const span = el("span"); const parts = String(s || "").split(/(https?:\/\/[^\s"<>]+)/g);
+  for (const part of parts) if (/^https?:\/\//.test(part)) span.append(el("a", { href: part, target: "_blank", rel: "noopener", text: /\.mp3$/.test(part) ? "Listen to voicemail" : "Open link" })); else if (part) span.append(part);
+  return span;
+}
+async function ibBadge() {
+  if ($("views").classList.contains("hidden")) return;
+  const { data, error } = await sb.rpc("inbox_unread");
+  const b = $("inboxBadge"); if (!b || error) return;
+  const n = Number(data) || 0;
+  b.textContent = n > 99 ? "99+" : String(n); b.classList.toggle("hidden", n === 0);
+  $("vInbox").setAttribute("aria-label", "Inbox" + (n ? ", " + n + " unread" : ""));
+}
+function ibStartPolling() {
+  clearInterval(ibTimer);
+  ibTimer = setInterval(() => { if (document.hidden) return; ibBadge(); if (!$("inbox").classList.contains("hidden")) loadInbox(true); }, 60000);
+  ibBadge();
+}
+async function loadInbox(quiet) {
+  const fb = $("ibFilters"); fb.textContent = "";
+  for (const [v, t] of IB_FILTERS) { const b = el("button", { type: "button", "aria-pressed": String(v === ibFilter), text: t }); b.onclick = () => { ibFilter = v; loadInbox(); }; fb.append(b); }
+  if (!quiet) $("ibCount").textContent = "Loading…";
+  const { data, error } = await sb.rpc("inbox_list", { p_filter: ibFilter, p_limit: 200 });
+  const box = $("ibList"); box.textContent = "";
+  if (error) { $("ibCount").textContent = "Couldn't load your inbox"; box.append(el("p", { class: "msg err", text: rpcErr({ error }) })); return; }
+  const rows = Array.isArray(data) ? data : [];
+  const unread = rows.filter((r) => r.unread).length;
+  $("ibCount").textContent = rows.length + (rows.length === 1 ? " conversation" : " conversations") + (unread ? " · " + unread + " unread" : "");
+  if (!rows.length) box.append(el("p", { class: "empty", text: ibFilter === "all" ? "No calls or texts yet. When someone calls or texts your BAP number, they show up here, even before they're matched to a property." : "Nothing here right now." }));
+  for (const r of rows) {
+    const item = el("button", { type: "button", class: "ibItem" + (r.unread ? " unread" : "") + (r.point_id === ibOpen ? " on" : ""), "aria-current": String(r.point_id === ibOpen) });
+    const top = el("div", { class: "ibTop" }, el("b", { text: ibName(r.name, r.phone) }), el("time", { text: when(r.last_at) }));
+    const where = r.linked ? el("div", { class: "sub", text: r.address || "Matched to a lead" }) : el("div", {}, el("span", { class: "badge warn", text: "Not matched yet" }));
+    const tags = el("div", { class: "ibTags" });
+    if (r.mode === "human") tags.append(el("span", { class: "badge", text: "You're replying" }));
+    if (r.opted_out) tags.append(el("span", { class: "badge warn", text: "Opted out" }));
+    const prev = el("div", { class: "ibPrev", text: (r.last_channel === "call" ? "Call: " : r.last_dir === "out" ? "You: " : "") + (r.last_body || "") });
+    item.append(top, where, prev, tags);
+    item.onclick = () => openThread(r.point_id);
+    box.append(item);
+  }
+  if (ibOpen && !quiet && !rows.some((r) => r.point_id === ibOpen)) { ibOpen = null; $("ibThread").textContent = ""; $("inbox").classList.remove("ib-open"); }
+}
+async function openThread(pid) {
+  ibOpen = pid; $("inbox").classList.add("ib-open");
+  for (const b of document.querySelectorAll("#ibList .ibItem")) b.classList.remove("on");
+  const pane = $("ibThread"); pane.textContent = "Loading…";
+  const { data: t, error } = await sb.rpc("inbox_thread", { p_point: pid });
+  pane.textContent = "";
+  if (error || !t || !t.point_id) { pane.append(el("p", { class: "msg err", text: error ? rpcErr({ error }) : "Conversation not found." })); return; }
+  const refresh = () => { openThread(pid); loadInbox(true); ibBadge(); };
+  const back = el("button", { type: "button", class: "link ibBack", text: "‹ All conversations" });
+  back.onclick = () => { $("inbox").classList.remove("ib-open"); ibOpen = null; loadInbox(true); };
+  const msg = el("p", { class: "sub", role: "status" });
+  // header: who, number, property
+  const nameB = el("h3", { style: "margin:0", text: ibName(t.name, t.phone) });
+  const rename = el("button", { type: "button", class: "link", text: "Rename" });
+  rename.onclick = () => {
+    const inp = el("input", { type: "text", maxlength: "120", value: (t.name && !/^New contact /.test(t.name)) ? t.name : "", placeholder: "Their name" });
+    const ok = el("button", { type: "button", class: "primary small", text: "Save" });
+    const f = el("span", { class: "row2", style: "gap:6px" }, inp, ok);
+    ok.onclick = async () => { const r = await sb.rpc("inbox_rename", { p_point: pid, p_name: inp.value }); if (r.error) { msg.textContent = rpcErr(r); return; } refresh(); };
+    rename.replaceWith(f); inp.focus();
+  };
+  const head = el("div", { class: "ibHead" }, el("div", { class: "row2", style: "align-items:baseline;gap:10px;flex-wrap:wrap" }, nameB, rename),
+    el("div", { class: "sub" }, el("a", { href: "tel:" + String(t.phone).replace(/[^0-9+]/g, ""), text: ibName(t.name, t.phone) === ibPhone(t.phone) ? "Call this number" : ibPhone(t.phone) })));
+  if (t.property_id) {
+    const open = el("button", { type: "button", class: "small", text: "Open lead" });
+    open.onclick = () => openDetail(t.property_id);
+    head.append(el("div", { class: "row2", style: "gap:8px;align-items:center;margin-top:4px" }, el("span", { text: t.address || "Matched property" }), open));
+  } else {
+    const linkBtn = el("button", { type: "button", class: "primary small", text: "Match to a property" });
+    head.append(el("div", { class: "row2", style: "gap:8px;align-items:center;margin-top:4px;flex-wrap:wrap" },
+      el("span", { class: "badge warn", text: "Not matched yet" }),
+      el("span", { class: "sub", text: "BAP matches automatically when they say the address. You can also do it now." }), linkBtn));
+    linkBtn.onclick = () => { linkBtn.disabled = true; head.append(ibLinkForm(pid, t, refresh)); };
+  }
+  // AI on/off
+  const ai = el("div", { class: "row2 ibMode", style: "gap:8px;align-items:center;flex-wrap:wrap" });
+  if (t.mode === "ai") {
+    ai.append(el("span", { class: "badge signed", text: "AI replies on" }), el("span", { class: "sub", text: "BAP's assistant answers their texts and asks for the address. Sending your own reply turns it off for this person." }));
+    const off = el("button", { type: "button", class: "link", text: "Turn off" }); off.onclick = async () => { const r = await sb.rpc("inbox_set_mode", { p_point: pid, p_mode: "human" }); if (r.error) { msg.textContent = rpcErr(r); return; } refresh(); };
+    ai.append(off);
+  } else {
+    ai.append(el("span", { class: "badge", text: t.mode === "closed" ? "Closed" : "You're replying" }),
+      el("span", { class: "sub", text: t.handoff_reason ? "Handed to you: " + t.handoff_reason : "AI replies are off for this person." }));
+    const on = el("button", { type: "button", class: "link", text: "Let AI reply" }); on.onclick = async () => { const r = await sb.rpc("inbox_set_mode", { p_point: pid, p_mode: "ai" }); if (r.error) { msg.textContent = rpcErr(r); return; } refresh(); };
+    ai.append(on);
+  }
+  head.append(ai);
+  // messages
+  const list = el("ol", { class: "ibMsgs", "aria-label": "Conversation" });
+  for (const m of t.messages || []) {
+    if (m.channel === "note") { list.append(el("li", { class: "ibSys" }, ibText(m.body), el("time", { text: when(m.at) }))); continue; }
+    if (m.channel === "call") { list.append(el("li", { class: "ibSys" }, el("b", { text: m.dir === "out" ? "Outgoing call " : (m.status === "missed" || m.status === "no-answer" ? "Missed call " : m.status === "voicemail" ? "" : "Call ") }), ibText(m.body && !/^Missed call from/.test(m.body) ? m.body : ""), el("time", { text: when(m.at) }))); continue; }
+    list.append(el("li", { class: "ibMsg " + (m.dir === "out" ? "out" : "in") }, ibText(m.body), el("time", { text: when(m.at) + (m.dir === "out" && m.status && m.status !== "sent" ? " · " + m.status : "") })));
+  }
+  for (const q of t.queued || []) list.append(el("li", { class: "ibMsg out pending" }, ibText(q.body || "(AI reply)"),
+    el("time", { text: q.status === "queued" ? "Sending…" : (q.status === "blocked" ? "Not sent: " : "Failed: ") + (q.reason || "") })));
+  if (!list.childElementCount) list.append(el("li", { class: "ibSys", text: "No messages yet." }));
+  pane.append(back, head, list, ibReplyBox(pid, t, refresh, msg), msg);
+  list.scrollTop = list.scrollHeight;
+}
+function ibReplyBox(pid, t, refresh, msg) {
+  if (t.texting !== "active") {
+    const go = el("button", { type: "button", class: "small", text: "Go to Services" }); go.onclick = () => setView("svc");
+    return el("div", { class: "note" }, "Texting is an add-on. Turn it on in Services to reply here. ", go);
+  }
+  if (t.reply_lock) {
+    const box = el("div", { class: "note" }, el("b", { text: "Can't text this number: " }), t.reply_lock + " ");
+    if (!t.opted_out && /permission/i.test(t.reply_lock)) {
+      const btn = el("button", { type: "button", class: "small", text: "Record permission to text" });
+      btn.onclick = () => { btn.remove(); box.append(consentForm({ id: pid, value: ibPhone(t.phone), name: ibName(t.name, t.phone) }, refresh)); };
+      box.append(btn);
+    }
+    return box;
+  }
+  const ta = el("textarea", { maxlength: "480", placeholder: "Type a reply…", "aria-label": "Reply" });
+  const send = el("button", { type: "button", class: "primary small", text: "Send" });
+  const hint = el("span", { class: "sub", text: t.text_lock ? "They contacted you in the last 24 hours, so you can reply. To keep texting later, record their permission." : "" });
+  send.onclick = async () => {
+    if (!ta.value.trim()) { msg.textContent = "Write a message first."; return; }
+    send.disabled = true; msg.textContent = "Sending…";
+    const r = await sb.rpc("inbox_reply", { p_point: pid, p_body: ta.value });
+    send.disabled = false;
+    if (r.error) { msg.textContent = rpcErr(r); return; }
+    msg.textContent = r.data && r.data.practice ? "" : "Sent to the queue. It goes out within a minute."; ta.value = ""; refresh();
+  };
+  ta.onkeydown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send.click(); };
+  return el("div", { class: "ibReply" }, ta, el("div", { class: "row2", style: "gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap" }, send, hint));
+}
+function ibLinkForm(pid, t, refresh) {
+  const inp = (ph, w, max) => el("input", { type: "text", placeholder: ph, maxlength: String(max || 80), style: "width:" + w });
+  const st = inp("Street address", "100%", 120), city = inp("City", "100%"), state = inp("State", "100%", 2), zip = inp("ZIP", "100%", 10);
+  const nm = inp("Owner's name (optional)", "100%", 120);
+  const save = el("button", { type: "button", class: "primary small", text: "Match" });
+  const m = el("span", { class: "sub", role: "status" });
+  const f = el("div", { class: "panel", style: "margin-top:8px;padding:10px" },
+    el("label", {}, "Property address", st), el("div", { class: "grid4", style: "grid-template-columns:2fr 1fr 1fr;margin-top:6px" }, el("label", {}, "City", city), el("label", {}, "State", state), el("label", {}, "ZIP", zip)),
+    el("label", {}, "Name", nm), el("p", { class: "sub", text: "BAP finds the property (your mailed properties first), adds it to your pipeline as Contacted, stops mail follow-ups and creates a call-back task." }),
+    el("div", { class: "row2", style: "gap:8px" }, save, m));
+  save.onclick = async () => {
+    if (!st.value.trim() || (!zip.value.trim() && !(city.value.trim() && state.value.trim()))) { m.textContent = "Enter the street plus the ZIP, or the city and state."; return; }
+    save.disabled = true; m.textContent = "Matching…";
+    const r = await sb.rpc("inbox_link", { p_point: pid, p_street: st.value.trim(), p_city: city.value.trim(), p_state: state.value.trim().toUpperCase(), p_zip: zip.value.trim(), p_name: nm.value.trim() || null });
+    save.disabled = false;
+    if (r.error) { m.textContent = rpcErr(r); return; }
+    if (r.data && r.data.practice) return;
+    if (r.data && r.data.linked === false) { m.textContent = r.data.reason || "Couldn't match that address. Check it and try again."; return; }
+    refresh();
+  };
+  return f;
+}
+$("vInbox").onclick = () => setView("inbox");
+$("ibRefresh").onclick = () => { loadInbox(); ibBadge(); if (ibOpen) openThread(ibOpen); };
 function stageButtons() {
   const box = $("pStages"); box.textContent = "";
   const opts = [["active", "All active"], ...Object.entries(STAGES)];
