@@ -246,7 +246,7 @@ tbody tr:last-child td { border-bottom: 0; }
   .app { grid-template-columns: 1fr; }
   aside.filters { position: fixed; inset: 0 0 0 auto; width: min(320px, 90%); z-index: 18; transform: translateX(-100%);
     left: 0; right: auto; visibility: hidden; transition: transform .22s ease, visibility 0s .22s;
-    padding-top: calc(env(safe-area-inset-top, 0px) + 18px); }
+    padding-top: 0; }
   aside.filters.open { transform: none; visibility: visible; transition: transform .22s ease; }
   .filters-toggle { display: inline-block; }
   main.results { padding: 14px; }
@@ -301,7 +301,8 @@ tbody tr:last-child td { border-bottom: 0; }
 .ffoot { display: flex; gap: 8px; padding-top: 12px; margin-top: 14px; border-top: 1px solid var(--line); }
 @media (max-width: 860px) {
   .mapwrap { height: min(62vh, calc(100vh - 52px - 66px - env(safe-area-inset-bottom, 0px))); min-height: 340px; }
-  .fhead { position: sticky; top: -18px; z-index: 3; background: var(--panel); padding: 8px 0 10px; }
+  .fhead { position: sticky; top: 0; z-index: 3; background: var(--panel); margin: 0 -18px 4px; padding: calc(env(safe-area-inset-top, 0px) + 12px) 18px 10px;
+    border-bottom: 1px solid var(--line); }
   .ffoot { position: sticky; bottom: -18px; z-index: 3; background: var(--panel); padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
 }
 </style>
@@ -349,9 +350,11 @@ tbody tr:last-child td { border-bottom: 0; }
     <h2>Lead type</h2>
     <p class="hint">Narrows the list: a lead must have every checked type. Numbers show how many are in the current map view.</p>
     <div class="checks" id="fKinds"></div>
+    <p class="hint hidden" id="fKindsNote" style="margin-top:6px"></p>
     <h2>Owner</h2>
     <p class="hint">Narrows the list: the owner must match every checked box. Owner details are only available in some counties so far.</p>
     <div class="checks" id="fFlags"></div>
+    <p class="hint hidden" id="fFlagsNone" style="margin-top:6px">No owner details for the area on the map yet. Move the map to a county that has them (some Texas counties so far) or zoom out.</p>
     <h2>Auction date</h2>
     <select id="fSale">
       <option value="">Any time</option><option value="14">Within 14 days</option>
@@ -804,20 +807,26 @@ async function loadCounties() {
   const box = $("fCounties"); box.textContent = "";
   const { data: src, error } = await sb.rpc("lead_counties");
   const names = (src || []).map((r) => r.county);
-  for (const r of src || []) box.append(el("label", {}, el("input", { type: "checkbox", value: r.county, "data-f": "county" }), r.county));
+  for (const r of src || []) box.append(el("label", {}, el("input", { type: "checkbox", value: r.county, "data-f": "county" }), r.county + (r.states ? ", " + r.states : "")));
   if (!names.length && !error) box.append(el("span", { class: "sub", text: "No counties loaded yet" }));
 }
 async function buildStaticFilters() {
   const k = $("fKinds");
   const was = checked("fKinds");
-  const { data: counts } = await sb.rpc("lead_kind_counts");
+  const { data: counts, error: kErr } = await sb.rpc("lead_kind_counts");
   const n = Object.fromEntries((counts || []).map((c) => [c.kind, Number(c.leads)]));
+  const known = !kErr && (counts || []).length > 0;       // if the totals can't load, still show every type
   k.textContent = "";
+  const none = [];
   for (const [v, t] of Object.entries(KINDS)) {
-    if (!n[v] && !was.includes(v)) continue;             // hide types with no leads yet
     const box = el("input", { type: "checkbox", value: v, "data-f": "kind" }); box.checked = was.includes(v);
-    k.append(el("label", {}, box, t, el("span", { class: "n", text: (n[v] || 0).toLocaleString("en-US") })));
+    const lab = el("label", {}, box, t, el("span", { class: "n", text: known ? (n[v] || 0).toLocaleString("en-US") : "" }));
+    if (known && !n[v] && !box.checked) { lab.classList.add("zero", "nodata"); box.disabled = true; lab.title = "BAP has no " + t.toLowerCase() + " leads yet"; none.push(t); }
+    k.append(lab);
   }
+  const note = $("fKindsNote");
+  note.textContent = none.length ? "No leads yet for: " + none.join(", ") + ". These come from county court and land records; more sources are being added." : "";
+  note.classList.toggle("hidden", !none.length);
   const f = $("fFlags"); if (!f.childElementCount)
     for (const [v, t] of Object.entries(FLAGS)) f.append(el("label", {}, el("input", { type: "checkbox", value: v, "data-f": "flag" }), t,
       el("span", { class: "n" })));
@@ -833,10 +842,14 @@ async function updateFacets(f) {
     $(box).querySelectorAll("label").forEach((lab) => {
       const i = lab.querySelector("input"), n = Number(counts[i.value] || 0), span = lab.querySelector(".n");
       if (span) span.textContent = n.toLocaleString("en-US");
-      const dead = n === 0 && !i.checked;
-      lab.classList.toggle("zero", dead); i.disabled = false;   // dimmed, never locked: any box can still be changed
+      if (lab.classList.contains("nodata")) return;          // type with no leads anywhere stays locked
+      const dead = n === 0 && !i.checked;                    // counts follow the map, so moving it unlocks boxes
+      lab.classList.toggle("zero", dead); i.disabled = dead;
+      lab.title = dead ? "No leads in the current map view match this" : "";
     });
   }
+  const flags = Object.values(data.flags || {}).reduce((a, b) => a + Number(b || 0), 0);
+  $("fFlagsNone").classList.toggle("hidden", flags > 0 || checked("fFlags").length > 0);
 }
 const checked = (box) => [...$(box).querySelectorAll("input:checked")].map((i) => i.value);
 function filters() {
