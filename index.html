@@ -810,7 +810,7 @@ async function loadCounties() {
   const box = $("fCounties"); box.textContent = "";
   const { data: src, error } = await sb.rpc("lead_counties");
   const names = (src || []).map((r) => r.county);
-  for (const r of src || []) box.append(el("label", {}, el("input", { type: "checkbox", value: r.county, "data-f": "county" }), r.county + (r.states ? ", " + r.states : "")));
+  for (const r of src || []) box.append(el("label", {}, el("input", { type: "checkbox", value: r.value || r.county, "data-f": "county" }), r.county + (r.states ? ", " + r.states : "")));
   if (!names.length && !error) box.append(el("span", { class: "sub", text: "No counties loaded yet" }));
 }
 async function buildStaticFilters() {
@@ -2024,7 +2024,7 @@ function openNational() {
     if (r.practice) { msg.textContent = "Practice mode: no real search was run."; return; }
     last = r;
     const n = Math.min(Number(r.count) || 0, Number(max.value));
-    msg.textContent = (Number(r.count) || 0).toLocaleString("en-US") + " found in " + where.label + "." +
+    msg.textContent = (Number(r.count) || 0).toLocaleString("en-US") + " found in " + where.label + (r.cached ? " (checked earlier today)" : "") + "." +
       (n ? " Adding " + n + " costs " + (r.exempt ? "nothing (your account is exempt)" : "$" + (n * r.price).toFixed(2) + " from your BAP credits ($" + Number(r.price).toFixed(2) + " each; balance $" + Number(r.balance).toFixed(2) + ")") + "." : "");
     pull.classList.toggle("hidden", !n);
   };
@@ -2037,11 +2037,30 @@ function openNational() {
     if (r.practice) { msg.textContent = "Practice mode: nothing was added or charged."; return; }
     pull.classList.add("hidden");
     msg.textContent = r.saved + " properties added (" + r.new_homes + " new to BAP)" + (r.charged ? ", $" + Number(r.charged).toFixed(2) + " charged" : "") +
-      ". They join the map at the next refresh (within 2 hours); open any of them now:";
+      ". They join the map at the next refresh (within 2 hours). Work them now:";
     out.textContent = "";
-    const list = el("div", { style: "display:grid;gap:4px;margin-top:6px" });
-    for (const id of (r.ids || []).slice(0, 50)) { const b = el("button", { type: "button", class: "link", style: "text-align:left", text: "Open lead " + (list.childElementCount + 1) }); b.onclick = () => { wrap.remove(); openDetail(id); }; list.append(b); }
-    out.append(list);
+    const homes = r.homes && r.homes.length ? r.homes : (r.ids || []).map((id) => ({ id }));
+    const all = el("button", { type: "button", class: "small", text: "Add all " + homes.length + " to my pipeline" });
+    const allMsg = el("span", { class: "sub", role: "status" });
+    all.onclick = async () => {
+      all.disabled = true; let ok = 0;
+      for (const h of homes) { allMsg.textContent = "Adding " + (ok + 1) + " of " + homes.length + "…"; const x = await sb.rpc("add_to_pipeline", { p_property: h.id }); if (!x.error) ok++; }
+      allMsg.textContent = ok + " added to your pipeline (already there ones are skipped).";
+    };
+    const list = el("div", { style: "display:grid;gap:6px;margin-top:8px" });
+    for (const h of homes.slice(0, 250)) {
+      const where2 = [h.address_line, [h.city, h.state].filter(Boolean).join(", ")].filter(Boolean).join(", ") || "Property";
+      const facts = [h.owner_name ? "Owner: " + title(h.owner_name) : "", h.est_value ? "Value " + money(h.est_value) : "",
+        h.est_equity_pct != null ? Math.round(h.est_equity_pct) + "% equity" : "", h.out_of_state ? "out-of-state owner" : h.absentee ? "absentee owner" : ""].filter(Boolean).join(" · ");
+      const open = el("button", { type: "button", class: "small", text: "Open" });
+      open.onclick = () => { wrap.remove(); openDetail(h.id); };
+      const card = el("div", { style: "border:1px solid var(--line);border-radius:var(--radius);padding:8px 10px;display:grid;gap:3px;background:var(--bg)" },
+        el("div", { class: "row2", style: "justify-content:space-between;gap:8px;align-items:center" }, el("b", { text: where2 }), open),
+        facts ? el("div", { class: "sub", text: facts }) : null,
+        (h.signals || []).length ? el("div", { style: "display:flex;gap:4px;flex-wrap:wrap" }, ...h.signals.map((t) => el("span", { class: "badge warn", text: t }))) : null);
+      list.append(card);
+    }
+    out.append(el("div", { class: "row2", style: "gap:8px;margin-top:8px;flex-wrap:wrap" }, all, allMsg), list);
   };
 }
 $("natBtn").onclick = openNational;
