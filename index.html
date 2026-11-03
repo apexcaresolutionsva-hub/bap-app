@@ -476,8 +476,14 @@ tbody tr:last-child td { border-bottom: 0; }
       <thead><tr><th>Property</th><th>Type</th><th>Status</th><th>Other party</th><th class="num">Price</th><th class="num">Your fee</th><th>Closing</th><th>Texas disclosure</th></tr></thead>
       <tbody id="dRows"></tbody>
     </table>
-    <div class="empty hidden" id="dEmpty">No contracts yet. Open a lead in your pipeline and work an offer.</div>
+    <div class="empty hidden" id="dEmpty">No contracts yet. Browse the contract templates below, then open a lead in your pipeline to fill one in for a deal.</div>
   </div>
+  <details class="panel" id="dLib" style="margin-top:18px" open><summary style="cursor:pointer;font-weight:700">Contract templates</summary>
+    <p class="sub">Purchase, assignment, option and partner (JV) agreements, plus the addenda each state requires. To use one, open a lead in your pipeline, go to Deal numbers, and choose Create contract: BAP fills in the property, prices and your business details.</p>
+    <label class="sub" style="display:flex;gap:8px;align-items:center;max-width:320px">State <select id="dLibState"></select></label>
+    <p class="note" id="dLibRule" style="margin:8px 0"></p>
+    <div id="dLibList" style="display:grid;gap:8px"></div>
+  </details>
 </section>
 
 <section class="pipe hidden" id="lend" aria-label="Lenders">
@@ -2650,13 +2656,52 @@ function contractRow(c, leadId, propertyId, dp, pp, org) {
   row.append(act, files, msg);
   return row;
 }
+
+/* ---------- Contracts tab: browse the template library without a deal ---------- */
+let libStatesLoaded = false;
+async function renderContractLibrary() {
+  const sel = $("dLibState");
+  if (!libStatesLoaded) {
+    const { data } = await sb.rpc("list_states");
+    for (const x of data || []) sel.append(el("option", { value: x.code, text: x.name }));
+    sel.value = (window.__prop && window.__prop.state) || "VA";
+    sel.onchange = renderContractLibrary; libStatesLoaded = true;
+  }
+  const box = $("dLibList"); box.textContent = "Loading…";
+  const { data: lib, error } = await sb.rpc("contract_library", { p_state: sel.value || "VA" });
+  box.textContent = "";
+  if (error || !lib) { box.append(el("p", { class: "msg err", text: error ? error.message : "Couldn't load templates." })); return; }
+  const st = lib.state || {};
+  const rules = { license: "Heads up: " + (st.name || sel.value) + " requires a real estate license to wholesale regularly. Talk to a local attorney before using these there.",
+    registration: (st.name || sel.value) + " requires wholesalers to register before marketing contracts.",
+    disclosure: (st.name || sel.value) + " requires a written wholesaler disclosure; BAP adds it automatically.",
+    none_found: "No specific wholesaling law found for " + (st.name || sel.value) + "; general real estate law still applies." };
+  $("dLibRule").textContent = (rules[st.rule] || "") + (st.note ? " " + st.note : "");
+  $("dLibRule").style.color = st.rule === "license" ? "var(--sale)" : "";
+  const temps = lib.templates || [];
+  const main = temps.filter((t) => !t.addendum), add = temps.filter((t) => t.addendum);
+  for (const t of [...main, ...add]) {
+    const card = el("div", { style: "border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;background:var(--bg);display:grid;gap:4px" },
+      el("div", { class: "row2", style: "gap:8px;align-items:center;flex-wrap:wrap" }, el("b", { text: t.name }),
+        t.addendum ? el("span", { class: "badge", text: "Required addendum" + (t.state && t.state !== "US" ? " (" + t.state + ")" : "") }) : null,
+        t.reviewed ? el("span", { class: "badge signed", text: "Attorney reviewed" }) : null),
+      t.description ? el("div", { class: "sub", text: t.description }) : null,
+      t.official_url ? el("a", { href: t.official_url, target: "_blank", rel: "noopener", text: "Official form" }) : null);
+    box.append(card);
+  }
+  if (!temps.length) box.append(el("p", { class: "sub", text: "No templates for this state yet." }));
+  const go = el("button", { type: "button", class: "primary small", text: "Start a contract from my pipeline" });
+  go.onclick = () => setView("pipe");
+  box.append(el("div", {}, go));
+}
 async function loadVault() {
+  renderContractLibrary();
   $("dCount").textContent = "Loading…";
   const { data, error } = await sb.rpc("contract_vault", { p_status: $("dStatus").value || null });
   const tb = $("dRows"); tb.textContent = "";
   if (error) { $("dCount").textContent = "Couldn't load contracts"; $("dEmpty").textContent = error.message; $("dEmpty").classList.remove("hidden"); return; }
   $("dCount").textContent = data.length + (data.length === 1 ? " contract" : " contracts");
-  $("dEmpty").textContent = "No contracts yet. Open a lead in your pipeline and work an offer.";
+  $("dEmpty").textContent = "No contracts yet. Browse the contract templates below, then open a lead in your pipeline to fill one in for a deal.";
   $("dEmpty").classList.toggle("hidden", data.length > 0);
   for (const c of data) {
     const tr = el("tr", { tabindex: "0" },
