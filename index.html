@@ -440,7 +440,7 @@ tbody tr:last-child td { border-bottom: 0; }
     <label class="sub"><input type="checkbox" id="pDue"> Due for follow-up only</label>
   </div>
   <div class="note hidden" id="bizNudge" style="margin-bottom:10px">Set up your business profile once so contracts, deal pages and emails fill in automatically. <button class="primary small" id="bizGo" type="button">Set it up</button></div>
-  <details class="panel hidden" id="pAdd"><summary style="cursor:pointer;font-weight:700">Add a property you found yourself</summary><div id="pAddForm" style="margin-top:8px"></div></details>
+  <details class="panel hidden" id="pAdd"><summary style="cursor:pointer;font-weight:700">Add a property or bring a list</summary><div id="pAddForm" style="margin-top:8px"></div></details>
   <div class="stages" id="pStages"></div>
   <div class="table-wrap">
     <table>
@@ -1125,6 +1125,54 @@ function addPropertyForm() {
     loadPipeline(); openDetail(r.data.property_id);
   };
   box.append(g, el("div", { class: "row2", style: "margin-top:8px" }, save, msg));
+  // bring a whole list (PropStream, county list, spreadsheet saved as CSV): BAP matches each address and adds it to the pipeline
+  const file = el("input", { type: "file", accept: ".csv,text/csv" });
+  const lname = el("input", { placeholder: "e.g. Tax delinquent, Norfolk, Nov" });
+  const imsg = el("p", { class: "sub", role: "status" });
+  const imp = el("button", { class: "primary small", type: "button", text: "Import list" });
+  box.append(el("h4", { style: "margin:16px 0 4px", text: "Or bring a whole list" }),
+    el("p", { class: "sub", text: "Upload a CSV from PropStream, a county, or any spreadsheet (Excel: File > Save As > CSV). Needs an address and state column; owner, phone and email columns are picked up automatically. Every property lands in your pipeline, ready for skip tracing, mail, texts, valuations and contracts." }),
+    el("div", { class: "grid4" }, el("label", {}, "CSV file", file), el("label", {}, "List name", lname)),
+    el("div", { class: "row2", style: "margin-top:8px" }, imp), imsg);
+  imp.onclick = async () => {
+    const fl = file.files && file.files[0];
+    if (!fl) { imsg.textContent = "Choose a CSV file first."; return; }
+    const rows = csvRows(await fl.text());
+    if (!rows.length) { imsg.textContent = "That file has no rows under the header line."; return; }
+    if (rows.length > 20000) { imsg.textContent = "Split the file into parts of 20,000 rows or fewer."; return; }
+    imp.disabled = true;
+    await sb.rpc("ensure_org");
+    let listId = null; const tot = { rows: 0, new_leads: 0, matched_to_bap_property: 0, already_in_pipeline: 0, skipped_no_address_or_state: 0, phones_added: 0, emails_added: 0 };
+    for (let i = 0; i < rows.length; i += 1000) {
+      imsg.textContent = "Importing " + Math.min(i + 1000, rows.length).toLocaleString("en-US") + " of " + rows.length.toLocaleString("en-US") + "…";
+      const r = await sb.rpc("import_list", { p_name: lname.value.trim() || fl.name.replace(/\.csv$/i, ""), p_rows: rows.slice(i, i + 1000), p_list_id: listId });
+      if (r.error) { imsg.textContent = "Couldn't import: " + r.error.message; imp.disabled = false; return; }
+      listId = r.data.list_id; for (const k in tot) tot[k] += Number(r.data[k] || 0);
+    }
+    imp.disabled = false;
+    imsg.textContent = tot.new_leads.toLocaleString("en-US") + " properties added to your pipeline" +
+      (tot.already_in_pipeline ? ", " + tot.already_in_pipeline + " were already there" : "") +
+      (tot.skipped_no_address_or_state ? ", " + tot.skipped_no_address_or_state + " skipped (no address or state)" : "") +
+      (tot.phones_added ? ", " + tot.phones_added + " phones saved (checked against Do Not Call before any call or text)" : "") + ".";
+    loadPipeline();
+  };
+}
+// CSV text -> [{header: value}], handles quoted fields, commas and line breaks inside quotes
+function csvRows(text) {
+  const out = []; let row = [], cur = "", q = false;
+  text = text.replace(/^\ufeff/, "");
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; continue; }
+    if (ch === '"') q = true;
+    else if (ch === ",") { row.push(cur); cur = ""; }
+    else if (ch === "\n" || ch === "\r") { if (ch === "\r" && text[i + 1] === "\n") i++; row.push(cur); cur = ""; if (row.some((x) => x.trim())) out.push(row); row = []; }
+    else cur += ch;
+  }
+  if (cur || row.length) { row.push(cur); if (row.some((x) => x.trim())) out.push(row); }
+  if (out.length < 2) return [];
+  const head = out[0].map((h) => h.trim());
+  return out.slice(1).map((r) => Object.fromEntries(head.map((h, i) => [h || "col" + i, (r[i] || "").trim()])));
 }
 
 /* ---------- Tab 4: buyers + selling the contract ---------- */
@@ -2486,6 +2534,10 @@ async function renderDealPanel(leadId, propertyId, dp, pp) {
     ["option", "option", "Option to purchase"],
     ["jv", "jv", "Joint venture (co-wholesale) with another wholesaler"]];
   const kind = el("select", { id: "cKind" }); for (const [v, , t] of SCEN) kind.append(el("option", { value: v, text: t }));
+  if (window.__wantScenario) {   // arrived from "Fill out this contract" on the Contracts tab
+    kind.value = window.__wantScenario; window.__wantScenario = null;
+    setTimeout(() => kind.scrollIntoView({ block: "center", behavior: "smooth" }), 400);
+  }
   const st = el("select", { id: "cState" });
   const rule = el("div", { class: "note", style: "margin:2px 0 8px" });
   const party = el("input", { id: "cParty", value: window.__ownerName || "" });
@@ -2744,12 +2796,61 @@ async function renderContractLibrary() {
         t.reviewed ? el("span", { class: "badge signed", text: "Attorney reviewed" }) : null),
       t.description ? el("div", { class: "sub", text: t.description }) : null,
       t.official_url ? el("a", { href: t.official_url, target: "_blank", rel: "noopener", text: "Official form" }) : null);
+    if (!t.addendum && t.scenario) {   // tap a contract to fill it out for any property: one from BAP, or one you bring
+      const use = el("button", { type: "button", class: "primary small", style: "justify-self:start;margin-top:4px", text: "Fill out this contract" });
+      use.onclick = (e) => { e.stopPropagation(); startContract(t.scenario, sel.value); };
+      card.append(use); card.style.cursor = "pointer"; card.onclick = () => startContract(t.scenario, sel.value);
+    }
     box.append(card);
   }
   if (!temps.length) box.append(el("p", { class: "sub", text: "No templates for this state yet." }));
-  const go = el("button", { type: "button", class: "primary small", text: "Start a contract from my pipeline" });
-  go.onclick = () => setView("pipe");
+  const go = el("button", { type: "button", class: "primary small", text: "Start a contract (any property)" });
+  go.onclick = () => startContract(null, sel.value);
   box.append(el("div", {}, go));
+}
+/* start a contract from the Contracts tab: for a lead already in BAP, or a property the member brings (it's added to their pipeline) */
+async function startContract(scenario, stateCode) {
+  const wrap = el("div", { style: "position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px", role: "dialog", "aria-modal": "true", "aria-label": "Start a contract" });
+  const card = el("div", { class: "panel", style: "max-width:480px;width:100%;margin:0;max-height:90vh;overflow:auto" });
+  const close = el("button", { type: "button", class: "ghost small", text: "Close" });
+  close.onclick = () => wrap.remove(); wrap.onclick = (e) => { if (e.target === wrap) wrap.remove(); };
+  const TYPES = [["wholesale_purchase", "Wholesale purchase (assignable)"], ["cash_purchase", "Standard cash purchase"],
+    ["assignment", "Assignment of contract"], ["option", "Option to purchase"], ["jv", "Joint venture (co-wholesale)"]];
+  const type = el("select", {}, ...TYPES.map(([v, t]) => el("option", { value: v, text: t })));
+  if (scenario) type.value = scenario;
+  const pick = el("select", {}, el("option", { value: "", text: "A property I'm bringing (type the address)" }));
+  const f = {}; const fld = (k, lab, attrs) => (f[k] = el("input", attrs || {}), el("label", {}, lab, f[k]));
+  const mine = el("div", { class: "grid4", style: "margin-top:6px" },
+    fld("address", "Street address *", { placeholder: "1312 Lakewood Dr" }), fld("city", "City"),
+    fld("state", "State *", { maxlength: 2, value: (stateCode || "").toUpperCase(), style: "text-transform:uppercase" }), fld("zip", "ZIP", { inputmode: "numeric" }),
+    fld("owner", "Seller / owner name"), fld("county", "County"));
+  const msg = el("p", { class: "sub", role: "status" });
+  const go = el("button", { type: "button", class: "primary small", text: "Continue to the contract" });
+  card.append(el("div", { class: "row2", style: "justify-content:space-between;align-items:center" }, el("h3", { style: "margin:0", text: "Fill out a contract" }), close),
+    el("p", { class: "sub", text: "Use any property: one from your BAP pipeline, or a deal you found yourself. BAP fills in the contract, lets you review it, then sends it for e-signature by email or text." }),
+    el("label", {}, "Contract", type), el("label", { style: "margin-top:8px" }, "Property", pick), mine, el("div", { class: "row2", style: "margin-top:10px" }, go), msg);
+  wrap.append(card); document.body.append(wrap);
+  pick.onchange = () => mine.classList.toggle("hidden", !!pick.value);
+  sb.rpc("pipeline_list", {}).then(({ data }) => {
+    for (const r of data || []) pick.append(el("option", { value: r.property_id, text: [r.address_line, r.city].filter(Boolean).join(", ") || "Lead" }));
+  });
+  go.onclick = async () => {
+    let pid = pick.value;
+    if (!pid) {
+      const st = f.state.value.trim().toUpperCase();
+      if (!f.address.value.trim()) { msg.textContent = "Enter the street address."; return; }
+      if (!/^[A-Z]{2}$/.test(st)) { msg.textContent = "Enter the 2-letter state (for example VA or TX)."; return; }
+      go.disabled = true; msg.textContent = "Adding the property…";
+      const r = await sb.rpc("add_my_property", { p: { address: f.address.value.trim(), city: f.city.value.trim(), state: st, zip: f.zip.value.trim(),
+        county: f.county.value.trim(), owner: f.owner.value.trim(), note: "Brought for a contract" } });
+      go.disabled = false;
+      if (r.error) { msg.textContent = "Couldn't add it: " + r.error.message; return; }
+      pid = r.data.property_id;
+      if (typeof loadPipeline === "function") loadPipeline();
+    }
+    window.__wantScenario = type.value;
+    wrap.remove(); openDetail(pid);
+  };
 }
 async function loadVault() {
   renderContractLibrary();
