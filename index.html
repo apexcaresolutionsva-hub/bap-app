@@ -390,6 +390,7 @@ tbody tr:last-child td { border-bottom: 0; }
         </select>
         <button class="mapbtn" id="drawBtn" type="button">Draw area</button>
         <button class="mapbtn" id="heatBtn" type="button" aria-pressed="false">Heat map</button>
+        <button class="mapbtn" id="natBtn" type="button" title="Pre-foreclosure, auction, probate and more for any US area">Nationwide leads</button>
       </div>
       <div class="map-hint hidden" id="drawHint">Tap the map to outline an area. <button class="primary small" id="drawDone" type="button">Finish</button></div>
       <div class="map-legend" id="mapLegend" aria-label="Lead type colors"></div>
@@ -627,11 +628,13 @@ const PRACTICE_SAMPLES = {
       q[m] = () => { practiceToast("Practice mode: change to \u201c" + table.replace(/_/g, " ") + "\u201d was simulated. Nothing was saved."); return fakeChain(); };
     return q;
   };
-  sb.functions.invoke = async (name, opts) => {
+  // sb.functions is a getter that builds a new client on every read, so assigning .invoke never stuck (paid calls could run in
+  // practice mode). Replace the property itself.
+  Object.defineProperty(sb, "functions", { configurable: true, value: { invoke: async (name, opts) => {
     const sample = PRACTICE_SAMPLES[name];
     practiceToast("Practice mode: \u201c" + name + "\u201d used sample results. Nothing was charged.");
     return sample ? sample() : { data: { practice: true }, error: null };
-  };
+  } } });
   // mail / phone / text links show a preview instead of opening apps
   document.addEventListener("click", (e) => {
     const a = e.target.closest && e.target.closest('a[href^="mailto:"], a[href^="tel:"], a[href^="sms:"]');
@@ -736,7 +739,7 @@ if ("serviceWorker" in navigator) window.addEventListener("load", () => navigato
 const KINDS = {
   pre_foreclosure: "Pre-foreclosure", foreclosure_sale: "Foreclosure sale", tax_delinquent: "Tax delinquent",
   tax_sale: "Tax sale", code_violation: "Code violations", probate: "Probate", vacant: "Vacant",
-  other: "Unregistered rental"
+  other: "Unregistered rental", obituary_no_probate: "Owner deceased"
 };
 const FLAGS = { absentee: "Absentee owner", out_of_state: "Out-of-state owner", senior: "Senior (65+)",
   corporate: "Company-owned", homestead: "Owner lives there" };   // high equity returns once equity estimates are loaded
@@ -1971,6 +1974,77 @@ function ibLinkForm(pid, t, refresh) {
   return f;
 }
 $("vInbox").onclick = () => setView("inbox");
+
+/* ---------- Nationwide leads: pre-foreclosure, auction, probate and owner details for any US map area (RealEstateAPI) ---------- */
+const NAT_TYPES = [["pre_foreclosure", "Pre-foreclosure (notice of default / lis pendens)"], ["foreclosure_sale", "Foreclosure auction scheduled"],
+  ["probate", "Inherited property (probate)"], ["deceased_owner", "Owner deceased"], ["tax_lien", "Tax lien"], ["vacant", "Vacant"],
+  ["absentee", "Absentee owner"], ["out_of_state", "Out-of-state owner"]];
+function natArea() {
+  const zip = ($("mapQ").value || "").trim();
+  if (/^\d{5}$/.test(zip)) return { area: { zip }, label: "ZIP " + zip };
+  if (typeof leadMap !== "undefined" && leadMap && typeof mapReady !== "undefined" && mapReady) {
+    const b = leadMap.getBounds();
+    return { area: { west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() }, label: "the area on the map" };
+  }
+  return null;
+}
+async function natCall(body) {
+  const r = await sb.functions.invoke("national-leads", { body });
+  if (r.error) { let m = r.error.message; try { m = (await r.error.context.json()).error || m; } catch (e) { /* keep */ } return { error: m }; }
+  return r.data || {};
+}
+function openNational() {
+  const wrap = el("div", { style: "position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px", role: "dialog", "aria-modal": "true", "aria-label": "Nationwide leads" });
+  const card = el("div", { class: "panel", style: "max-width:460px;width:100%;margin:0;max-height:90vh;overflow:auto" });
+  const close = el("button", { type: "button", class: "ghost small", text: "Close" });
+  close.onclick = () => wrap.remove();
+  wrap.onclick = (e) => { if (e.target === wrap) wrap.remove(); };
+  const where = natArea();
+  const type = el("select", {}, ...NAT_TYPES.map(([v, t]) => el("option", { value: v, text: t })));
+  const max = el("select", {}, ...[25, 50, 100, 250].map((n) => el("option", { value: String(n), text: String(n) + " properties" })));
+  max.value = "50";
+  const check = el("button", { type: "button", class: "primary small", text: "Check how many (free)" });
+  const pull = el("button", { type: "button", class: "primary small hidden", text: "Add to my map" });
+  const msg = el("p", { class: "sub", role: "status" });
+  const out = el("div");
+  card.append(el("div", { class: "row2", style: "justify-content:space-between;align-items:center" }, el("h3", { style: "margin:0", text: "Nationwide leads" }), close),
+    el("p", { class: "sub", text: "Court, county recorder and assessor records for any US county: foreclosures, auctions, probate, liens and owner details. " +
+      (where ? "Searching " + where.label + ". Zoom to a city or county, or type a 5-digit ZIP in the map search first." : "Open the map first.") }),
+    el("label", {}, "Lead type", type), el("label", { style: "margin-top:8px" }, "How many to add", max),
+    el("div", { class: "row2", style: "gap:8px;margin-top:10px;flex-wrap:wrap" }, check, pull), msg, out);
+  wrap.append(card); document.body.append(wrap);
+  let last = null;
+  type.onchange = () => { pull.classList.add("hidden"); msg.textContent = ""; };
+  check.onclick = async () => {
+    if (!where) { msg.textContent = "Open the map first."; return; }
+    check.disabled = true; msg.textContent = "Checking…"; out.textContent = "";
+    const r = await natCall({ mode: "count", type: type.value, area: where.area });
+    check.disabled = false;
+    if (r.error) { msg.textContent = r.error; return; }
+    if (r.practice) { msg.textContent = "Practice mode: no real search was run."; return; }
+    last = r;
+    const n = Math.min(Number(r.count) || 0, Number(max.value));
+    msg.textContent = (Number(r.count) || 0).toLocaleString("en-US") + " found in " + where.label + "." +
+      (n ? " Adding " + n + " costs " + (r.exempt ? "nothing (your account is exempt)" : "$" + (n * r.price).toFixed(2) + " from your BAP credits ($" + Number(r.price).toFixed(2) + " each; balance $" + Number(r.balance).toFixed(2) + ")") + "." : "");
+    pull.classList.toggle("hidden", !n);
+  };
+  max.onchange = () => { if (last) check.onclick(); };
+  pull.onclick = async () => {
+    pull.disabled = true; msg.textContent = "Adding properties…";
+    const r = await natCall({ mode: "pull", type: type.value, area: where.area, max: Number(max.value) });
+    pull.disabled = false;
+    if (r.error) { msg.textContent = r.error; return; }
+    if (r.practice) { msg.textContent = "Practice mode: nothing was added or charged."; return; }
+    pull.classList.add("hidden");
+    msg.textContent = r.saved + " properties added (" + r.new_homes + " new to BAP)" + (r.charged ? ", $" + Number(r.charged).toFixed(2) + " charged" : "") +
+      ". They join the map at the next refresh (within 2 hours); open any of them now:";
+    out.textContent = "";
+    const list = el("div", { style: "display:grid;gap:4px;margin-top:6px" });
+    for (const id of (r.ids || []).slice(0, 50)) { const b = el("button", { type: "button", class: "link", style: "text-align:left", text: "Open lead " + (list.childElementCount + 1) }); b.onclick = () => { wrap.remove(); openDetail(id); }; list.append(b); }
+    out.append(list);
+  };
+}
+$("natBtn").onclick = openNational;
 /* phone: secondary tabs live under More */
 (function moreMenu() {
   const more = $("vMore");
