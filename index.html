@@ -741,6 +741,56 @@ new MutationObserver(() => {
 }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
 // installable app: register the offline helper (ignored by browsers that don't support it)
 if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+/* "Install BAP" prompt: Android/Chrome get a one-tap Install button; iPhone/iPad Safari get the two-step Share > Add to Home Screen
+   instructions (Apple has no install button for web apps). Hidden once installed, and for 30 days after "Not now". */
+(function installPrompt() {
+  const KEY = "bapInstallLater";
+  const standalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  const snoozed = () => { try { return Date.now() < Number(localStorage.getItem(KEY) || 0); } catch (e) { return false; } };
+  const ua = navigator.userAgent;
+  const ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const iosSafari = ios && !/CriOS|FxiOS|EdgiOS|OPiOS|GSA\//.test(ua);
+  let deferred = null, shown = false;
+  addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); deferred = e; maybeShow(); });
+  addEventListener("appinstalled", () => { document.getElementById("installBar")?.remove(); });
+  function maybeShow() {
+    if (shown || standalone() || snoozed() || !document.body.classList.contains("signed-in")) return;
+    if (!deferred && !iosSafari) return;
+    shown = true;
+    const css = document.createElement("style");
+    css.textContent = "#installBar{position:fixed;left:12px;right:12px;bottom:16px;z-index:14;max-width:520px;margin:0 auto;background:var(--bg,#fff);color:var(--ink,#111);" +
+      "border:1px solid var(--line,#ccd);border-radius:14px;box-shadow:0 8px 28px rgba(10,20,35,.25);padding:12px 14px;display:flex;gap:12px;align-items:center}" +
+      "#installBar img{width:40px;height:40px;border-radius:9px;flex:none}#installBar .t{flex:1;font-size:14px;line-height:1.35}#installBar b{display:block;font-size:15px}" +
+      "#installBar .acts{display:flex;flex-direction:column;gap:4px}#installBar button{font:inherit;font-size:14px;border-radius:8px;padding:7px 12px;cursor:pointer;border:1px solid transparent}" +
+      "#installBar .go{background:#1d3557;color:#fff}#installBar .no{background:transparent;color:inherit;border-color:var(--line,#ccd)}" +
+      "@media (max-width:860px){body.signed-in #installBar{bottom:calc(76px + env(safe-area-inset-bottom,0px))}}";
+    document.head.append(css);
+    const bar = document.createElement("div");
+    bar.id = "installBar"; bar.setAttribute("role", "dialog"); bar.setAttribute("aria-label", "Install BAP");
+    const icon = document.createElement("img"); icon.src = "apple-touch-icon.png"; icon.alt = "";
+    const t = document.createElement("div"); t.className = "t";
+    const head = document.createElement("b"); head.textContent = "Put BAP on your home screen";
+    const body = document.createElement("span");
+    body.textContent = deferred ? "Opens like an app, full screen, one tap away." :
+      "Tap the Share button (square with an arrow) at the bottom of Safari, then “Add to Home Screen.”";
+    t.append(head, body);
+    const acts = document.createElement("div"); acts.className = "acts";
+    const no = document.createElement("button"); no.type = "button"; no.className = "no"; no.textContent = deferred ? "Not now" : "Got it";
+    no.onclick = () => { try { localStorage.setItem(KEY, String(Date.now() + 30 * 864e5)); } catch (e) { /* private mode */ } bar.remove(); };
+    if (deferred) {
+      const go = document.createElement("button"); go.type = "button"; go.className = "go"; go.textContent = "Install";
+      go.onclick = async () => { const d = deferred; deferred = null; bar.remove(); try { await d.prompt(); } catch (e) { /* closed */ } };
+      acts.append(go);
+    }
+    acts.append(no);
+    bar.append(icon, t, acts);
+    document.body.append(bar);
+  }
+  // wait until the member is signed in and has had a moment in the app
+  new MutationObserver(() => { if (document.body.classList.contains("signed-in")) setTimeout(maybeShow, 15000); })
+    .observe(document.body, { attributes: true, attributeFilter: ["class"] });
+  addEventListener("load", () => setTimeout(maybeShow, 15000));
+})();
 
 const KINDS = {
   pre_foreclosure: "Pre-foreclosure", foreclosure_sale: "Foreclosure sale", tax_delinquent: "Tax delinquent",
