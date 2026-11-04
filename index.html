@@ -1843,7 +1843,7 @@ $("vDeals").onclick = () => setView("deals");
 $("vMkt").onclick = () => setView("mkt");
 
 /* ---------- Deals tab: properties for sale (land banks, opted-in wholesalers, member contracts) ---------- */
-const MKT_BADGE = { land_bank: "Land bank", county_owned: "County owned", wholesaler: "Wholesaler", member: "BAP member" };
+const MKT_BADGE = { land_bank: "Land bank", county_owned: "County owned", tax_auction: "Tax-sale auction", wholesaler: "Wholesaler", member: "BAP member" };
 const mktMoney = (n) => n == null ? "" : "$" + Number(n).toLocaleString("en-US", { maximumFractionDigits: 0 });
 let mktStatesLoaded = false;
 async function loadMarket() {
@@ -1860,7 +1860,10 @@ async function loadMarket() {
     mktStatesLoaded = true;
   }
   const what = { home: ["home", "homes"], land: ["lot", "lots"], commercial: ["commercial property", "commercial properties"] }[$("mType").value] || ["deal", "deals"];
-  $("mCount").textContent = data.length.toLocaleString("en-US") + " " + (data.length === 1 ? what[0] : what[1]) + " for sale";
+  const nAuc = data.filter((d) => d.source_kind === "tax_auction").length, nSale = data.length - nAuc;
+  $("mCount").textContent = nSale.toLocaleString("en-US") + " " + (nSale === 1 ? what[0] : what[1]) + " for sale" +
+    (nAuc ? " · " + nAuc.toLocaleString("en-US") + " going to tax-sale auction" : "");
+  data.sort((x, y) => (x.source_kind === "tax_auction") - (y.source_kind === "tax_auction"));
   $("mEmpty").classList.toggle("hidden", data.length > 0);
   for (const d of data) {
     const where = [d.address, d.city, d.state].filter(Boolean).join(", ") + (d.zip ? " " + d.zip : "");
@@ -1871,6 +1874,12 @@ async function loadMarket() {
       el("b", { text: where }),
       el("div", { class: "sub", text: [d.program, d.details].filter(Boolean).join(" · ") }));
     if (facts) card.append(el("div", { text: facts }));
+    if (d.source_kind === "tax_auction") {
+      const days = d.listing_date ? Math.round((Date.parse(d.listing_date) - Date.parse(new Date().toISOString().slice(0, 10))) / 864e5) : null;
+      card.append(el("div", {}, days != null && days >= 0 ? el("span", { class: "badge warn", text: days === 0 ? "Auction today" : "Auction in " + days + " day" + (days === 1 ? "" : "s") }) : "",
+        el("div", { class: "sub", style: "margin-top:4px", text: "Not for sale yet: the owner still holds title until the sheriff sale. Buy from the owner before the sale, or bid at the auction. " +
+          (d.state === "TX" ? "In Texas the owner can redeem after the sale (2 years for a homestead, 180 days otherwise)." : "Check the redemption period.") })));
+    }
     const row = el("div", { style: "display:flex;gap:6px;flex-wrap:wrap" });
     const gq = encodeURIComponent(where);
     const open = el("button", { type: "button", class: "primary small", text: "Open in BAP" });
@@ -2479,7 +2488,7 @@ async function renderDealPanel(leadId, propertyId, dp, pp) {
   const { data, error } = await sb.rpc("deal_for_lead", { p_lead: leadId });
   if (error) { dp.append(el("p", { class: "msg err", text: error.message })); return; }
   const o = data.offer || {};
-  renderAiSection(leadId, dp);
+  renderAiSection(leadId, dp, propertyId, pp);
   // value & rent (RentCast) — as-is value with comps; you judge the ARV
   dp.append(el("h3", { text: "Value & rent" }));
   const vbox = el("div");
@@ -3060,43 +3069,91 @@ function renderAnalysis(box, a, at) {
   box.append(el("div", {}, el("span", { class: "badge" + (r.verdict === "pursue" ? " signed" : r.verdict === "pass" ? " warn" : ""), text: VERDICT[r.verdict] || r.verdict || "" }), " ",
     el("b", { text: r.headline || "" })));
   if (at) box.append(el("div", { class: "sub", text: "Analyzed " + when(at) }));
-  const dl = el("dl", { class: "event", style: "display:grid;grid-template-columns:auto 1fr;gap:4px 12px;border:0;padding:8px 0" });
-  const row = (k, v) => { if (v) dl.append(el("dt", { class: "sub", text: k }), el("dd", { style: "margin:0", text: v })); };
-  row("Seller motivation", r.motivation);
-  if (r.arv) row("ARV", rng(r.arv) + (r.arv.basis ? ". " + r.arv.basis : ""));
-  if (r.repairs) row("Repairs", rng(r.repairs) + (r.repairs.basis ? ". " + r.repairs.basis : ""));
-  if (r.offer) row("Offer", (r.offer.open != null ? "Open at " + money(r.offer.open) : "") + (r.offer.max != null ? ", max " + money(r.offer.max) : "") + (r.offer.basis ? ". " + r.offer.basis : ""));
-  row("Exit plan", r.exit); row("Timing", r.timing);
-  box.append(dl);
-  const list = (title, items) => { if (items && items.length) { box.append(el("div", { class: "sub", style: "margin-top:6px;font-weight:600", text: title }));
-    const ul = el("ul", { style: "margin:4px 0 8px 18px;padding:0;font-size:14px" }); for (const i of items) ul.append(el("li", { text: i })); box.append(ul); } };
-  list("Risks", r.risks); list("Next steps", r.next_steps); list("Questions to ask the seller", r.seller_questions); list("Missing information", r.missing_info);
-  if (r.raw) box.append(el("p", { class: "sub", text: r.raw }));
-  if (r.arv && r.arv.high != null) {
+  if (r.v === 2) {
+    // one-screen summary: deadline, why, numbers, contact rules, 3 questions
+    const au = r.auction;
+    if (au && au.status === "scheduled") box.append(el("p", { style: "margin:8px 0 4px" },
+      el("span", { class: "badge warn", text: "Tax sale in " + au.days_away + " day" + (au.days_away === 1 ? "" : "s") }), " ",
+      el("span", { class: "sub", text: au.sale_date + ". The owner still holds title until the sale. " + (au.redemption || "") })));
+    else if (au && au.status === "struck_off_to_county") box.append(el("p", { class: "sub", text: "Struck off to the county: bought through the county resale, not from the owner." }));
+    if (r.why && r.why.length) { const ul = el("ul", { style: "margin:6px 0 6px 18px;padding:0;font-size:14px" }); for (const w of r.why) ul.append(el("li", { text: w })); box.append(ul); }
+    const dl = el("dl", { class: "event", style: "display:grid;grid-template-columns:auto 1fr;gap:4px 12px;border:0;padding:6px 0" });
+    const row = (k, v) => { if (v) dl.append(el("dt", { class: "sub", text: k }), el("dd", { style: "margin:0", text: v })); };
+    if (r.taxes_owed) row("Taxes owed", money(r.taxes_owed) + (r.years_delinquent ? " · " + r.years_delinquent + " years behind" : "") + (r.tax_lawsuit ? " · tax lawsuit filed" : ""));
+    if (r.arv) row(r.arv_supported ? "ARV" : "Value (rough)", rng(r.arv) + (r.arv.basis ? ". " + r.arv.basis : ""));
+    row("Value source", r.value_source);
+    if (r.repairs) row("Repairs", rng(r.repairs) + (r.repairs.basis ? ". " + r.repairs.basis : ""));
+    if (r.offer && (r.offer.open != null || r.offer.max != null)) row("Offer", (r.offer.open != null ? "Open at " + money(r.offer.open) : "") + (r.offer.max != null ? (r.offer.open != null ? ", max " : "Max ") + money(r.offer.max) : "") + (r.offer.basis ? ". " + r.offer.basis : ""));
+    row("Deadline", r.deadline);
+    if (r.contact) row("Contact", [r.contact.allowed, r.contact.how].filter(Boolean).join(". "));
+    box.append(dl);
+    if (r.questions && r.questions.length) { box.append(el("div", { class: "sub", style: "margin-top:4px;font-weight:600", text: "Ask the owner" }));
+      const ol = el("ol", { style: "margin:4px 0 8px 18px;padding:0;font-size:14px" }); for (const q of r.questions) ol.append(el("li", { text: q })); box.append(ol); }
+  } else {
+    // older analyses (before Nov 2026) keep their original layout
+    const dl = el("dl", { class: "event", style: "display:grid;grid-template-columns:auto 1fr;gap:4px 12px;border:0;padding:8px 0" });
+    const row = (k, v) => { if (v) dl.append(el("dt", { class: "sub", text: k }), el("dd", { style: "margin:0", text: v })); };
+    row("Seller motivation", r.motivation);
+    if (r.arv) row("ARV", rng(r.arv) + (r.arv.basis ? ". " + r.arv.basis : ""));
+    if (r.repairs) row("Repairs", rng(r.repairs) + (r.repairs.basis ? ". " + r.repairs.basis : ""));
+    if (r.offer) row("Offer", (r.offer.open != null ? "Open at " + money(r.offer.open) : "") + (r.offer.max != null ? ", max " + money(r.offer.max) : "") + (r.offer.basis ? ". " + r.offer.basis : ""));
+    row("Exit plan", r.exit); row("Timing", r.timing);
+    box.append(dl);
+    const list = (title, items) => { if (items && items.length) { box.append(el("div", { class: "sub", style: "margin-top:6px;font-weight:600", text: title }));
+      const ul = el("ul", { style: "margin:4px 0 8px 18px;padding:0;font-size:14px" }); for (const i of items) ul.append(el("li", { text: i })); box.append(ul); } };
+    list("Questions to ask the seller", r.seller_questions);
+  }
+  // the offer button needs real comps behind the ARV (new analyses) or an ARV range (old ones)
+  const canUse = r.v === 2 ? r.arv_supported && r.arv && r.arv.high != null : r.arv && r.arv.high != null;
+  if (canUse) {
     const use = el("button", { class: "ghost small", type: "button", text: "Use these numbers in my offer" });
     use.onclick = () => { const mid = (o) => o.low != null && o.high != null ? Math.round((Number(o.low) + Number(o.high)) / 2) : (o.high ?? o.low);
       if ($("oArv")) { $("oArv").value = mid(r.arv); if (r.repairs) $("oRep").value = mid(r.repairs); $("oArv").dispatchEvent(new Event("input", { bubbles: true })); $("oArv").scrollIntoView({ block: "center" }); } };
     box.append(use);
-  }
+  } else if (r.v === 2) box.append(el("p", { class: "sub", text: "Pull value & rent (comps) before using these numbers in an offer." }));
   box.append(el("p", { class: "note", text: "AI analysis is decision support from the data BAP has, not legal or financial advice. Verify before you offer." }));
 }
-async function renderAiSection(leadId, dp) {
-  dp.append(el("h3", { text: "AI deal analysis" }));
-  const box = el("div"); const msg = el("span", { class: "sub", role: "status" });
-  const btn = el("button", { class: "primary small", type: "button", text: "Run AI analysis" });
-  dp.append(el("div", { class: "row2" }, btn, msg), box);
-  const svc = await servicePrices(); const price = svc.ai_analysis ? Number(svc.ai_analysis.my_price) : null;
-  if (price != null) btn.textContent = "Run AI analysis ($" + price.toFixed(2) + ")";
-  const { data: last } = await sb.from("ai_analyses").select("result, created_at").eq("lead_id", leadId).order("created_at", { ascending: false }).limit(1);
-  if (last && last.length) { renderAnalysis(box, last[0].result, last[0].created_at); btn.textContent = btn.textContent.replace("Run", "Run new"); btn.className = "ghost small"; }
+let aiFlash = "";
+async function renderAiSection(leadId, dp, propertyId, pp) {
+  dp.append(el("h3", { text: "Work this lead" }));
+  const box = el("div"); const msg = el("span", { class: "sub", role: "status", text: aiFlash }); aiFlash = "";
+  const btn = el("button", { class: "primary small", type: "button", text: "Work this lead" });
+  dp.append(el("p", { class: "sub", style: "margin:0 0 6px", text: "One tap: BAP pulls the value and comps, finds the owner's phones, then Claude writes a one-screen deal summary." }),
+    el("div", { class: "row2" }, btn, msg), box);
+  const [svc, avmR, pipeR, lastR] = await Promise.all([servicePrices(),
+    propertyId ? sb.rpc("property_valuation", { p_property: propertyId }) : Promise.resolve({ data: null }),
+    propertyId ? sb.rpc("pipeline_lead", { p_property: propertyId }) : Promise.resolve({ data: null }),
+    sb.from("ai_analyses").select("result, created_at").eq("lead_id", leadId).order("created_at", { ascending: false }).limit(1)]);
+  const price = (k) => svc[k] ? Number(svc[k].my_price) : null;
+  const avm = avmR.data, traced = !!(pipeR.data && pipeR.data.traced_at);
+  const fresh = avm && avm.at && (Date.now() - Date.parse(avm.at)) < 30 * 864e5;
+  const steps = [];
+  if (propertyId && !fresh) steps.push("Value, rent & comps" + (price("valuation") != null ? " ($" + price("valuation").toFixed(2) + ")" : ""));
+  if (propertyId && !traced) steps.push("Owner phones & emails" + (price("skiptrace") != null ? " (from your plan's skip traces, or $" + price("skiptrace").toFixed(2) + " if found)" : ""));
+  steps.push("AI deal summary" + (price("ai_analysis") != null ? " ($" + price("ai_analysis").toFixed(2) + ")" : ""));
+  const last = lastR.data;
+  if (last && last.length) { renderAnalysis(box, last[0].result, last[0].created_at); btn.textContent = "Work this lead again"; btn.className = "ghost small"; }
+  const errOf = async (r) => { let m = r.error.message; try { m = (await r.error.context.json()).error || m; } catch (e) { /* generic */ } return m; };
   btn.onclick = async () => {
-    if (price != null && !confirm("AI deal analysis is a paid service: $" + price.toFixed(2) + " will be added to your BAP account. Run it?")) return;
-    btn.disabled = true; msg.textContent = "Claude is reviewing this deal (about 20 seconds)…";
+    if (!confirm("Work this lead runs:\n\n• " + steps.join("\n• ") + "\n\nSteps BAP already has are skipped and free. Continue?")) return;
+    btn.disabled = true; const notes = [];
+    if (propertyId && !fresh) {
+      msg.textContent = "Pulling value, rent and comps…";
+      const v = await sb.functions.invoke("valuation", { body: { property_id: propertyId } });
+      if (v.error) notes.push("Value: " + await errOf(v));
+    }
+    if (propertyId && !traced) {
+      msg.textContent = "Finding the owner's phones…";
+      const t = await sb.functions.invoke("skiptrace", { body: { lead_id: leadId, force: false } });
+      if (t.error) notes.push("Skip trace: " + await errOf(t));
+    }
+    msg.textContent = "Claude is reviewing this deal (about 20 seconds)…";
     const r = await sb.functions.invoke("ai-analysis", { body: { lead_id: leadId } });
     btn.disabled = false;
-    if (r.error) { let m = r.error.message; try { m = (await r.error.context.json()).error || m; } catch (e) { /* generic */ } msg.textContent = m; return; }
-    msg.textContent = r.data.price != null ? "Charged $" + Number(r.data.price).toFixed(2) + "." : "";
-    renderAnalysis(box, r.data.result, r.data.at);
+    if (r.error) { msg.textContent = [await errOf(r)].concat(notes).join(" · "); return; }
+    aiFlash = ["Done." + (r.data.price != null ? " AI charged $" + Number(r.data.price).toFixed(2) + "." : "")].concat(notes).join(" ");
+    if (propertyId && pp) { renderPipePanel(propertyId, pp); renderDealPanel(leadId, propertyId, dp, pp); }
+    else { msg.textContent = aiFlash; aiFlash = ""; renderAnalysis(box, r.data.result, r.data.at); }
   };
 }
 
