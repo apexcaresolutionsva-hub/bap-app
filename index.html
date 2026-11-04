@@ -342,6 +342,7 @@ tbody tr:last-child td { border-bottom: 0; }
   </form>
   <p class="msg" id="authMsg" role="status"></p>
   <p class="note"><button class="link" id="authSwap" type="button">Create an account instead</button></p>
+  <p class="note" style="font-size:.85rem">By creating an account or signing in, you confirm you are 18 or older and agree to BAP's <a href="/terms/" target="_blank" rel="noopener">Terms of Service</a> and <a href="/privacy/" target="_blank" rel="noopener">Privacy Policy</a>.</p>
 </section>
 
 <div class="app hidden" id="app">
@@ -2326,7 +2327,8 @@ async function renderPipePanel(propertyId, pp) {
     const go = el("button", { class: "primary small", type: "button", text: "Get phone numbers" });
     go.onclick = () => { go.disabled = true; trace(false).finally(() => { go.disabled = false; }); };
     pp.append(el("div", { class: "row2" }, go, tmsg),
-      el("p", { class: "note", text: "Uses Tracerfy: about $0.10 when the owner is found, free if there's no match." }));
+      el("p", { class: "note", text: "Uses Tracerfy: about $0.10 when the owner is found, free if there's no match." }),
+      el("p", { class: "note", text: "Owner contact info is for real estate outreach only. Never use it for credit, employment, tenant screening or insurance decisions (FCRA). Check Do Not Call status and get permission before texting." }));
   } else {
     const again = el("button", { class: "link", type: "button", text: "Run again (paid)" });
     again.onclick = () => { if (confirm("Run a fresh skip trace? Tracerfy charges again if it finds the owner.")) trace(true); };
@@ -2994,7 +2996,11 @@ async function loadBilling() {
       await sb.rpc("ensure_org");
       billingGo("stripe-checkout", { kind: "plan", plan: p.key, interval: billInterval }, msg);
     };
-    card.append(btn); grid.append(card);
+    card.append(btn);
+    if (!isCur) card.append(el("p", { class: "sub", style: "margin:4px 0 0;font-size:.8rem", text: trial
+      ? "Free for 7 days, then $" + n(price) + (billInterval === "year" ? " a year" : " a month") + " until you cancel. Cancel before the trial ends and you won't be charged."
+      : "Renews automatically every " + (billInterval === "year" ? "year" : "month") + " at $" + n(price) + " until you cancel." }));
+    grid.append(card);
   }
   box.append(tog, grid);
   if (b.plan === "team") {   // Team plan: invite up to 2 more users to this account
@@ -3024,7 +3030,10 @@ async function loadBilling() {
   if (b.has_billing) { const m = el("button", { class: "ghost small", type: "button", text: "Manage billing" }); m.onclick = () => billingGo("stripe-portal", {}, msg); row.append(m); }
   box.append(row, el("p", { class: "sub", style: "margin:8px 0 0", text: "Unlimited means no monthly cap on BAP's own leads; to stop list copying, each user can open up to 300 new leads a day. " +
     "Credits pay for anything beyond your plan (and everything on the free plan). " +
-    "Payments are processed securely by Stripe. Cancel anytime in Manage billing; your plan stays active to the end of the period you paid for." }), msg);
+    "Payments are processed securely by Stripe. Cancel anytime in Manage billing; your plan stays active to the end of the period you paid for." }),
+    el("p", { class: "sub", style: "margin:4px 0 0" }, el("a", { href: "/terms/", target: "_blank", rel: "noopener", text: "Terms" }), " · ",
+      el("a", { href: "/privacy/", target: "_blank", rel: "noopener", text: "Privacy" }), " · ",
+      el("a", { href: "/refunds/", target: "_blank", rel: "noopener", text: "Refund & cancellation policy" })), msg);
   if (location.hash === "#billing-success") {
     msg.className = "msg"; msg.textContent = "Payment received. Thank you! Your account updates within a few seconds.";
     history.replaceState(null, "", location.pathname);
