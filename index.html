@@ -164,6 +164,8 @@ main.results { position: relative; padding: 0; }
 #map { position: absolute; inset: 0; }
 .map-top { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; gap: 8px; z-index: 3; pointer-events: none; }
 .map-top > * { pointer-events: auto; }
+/* a lead card on the map hides the floating controls so nothing covers it; they come back when the card closes */
+.mapwrap.card-open .map-top, .mapwrap.card-open .map-legend, .mapwrap.card-open .map-bottom, .mapwrap.card-open .map-note { display: none; }
 .mapsearch { flex: 1; max-width: 420px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
   background: var(--bg); box-shadow: 0 2px 8px rgba(10, 20, 35, .18); font-size: 15px; }
 .mapbtn { padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink);
@@ -1388,10 +1390,10 @@ async function refreshMap() {
   leadMap.getSource("leads").setData({ type: "FeatureCollection", features: mapFeatures(data) });
   const n = Number(data.total || 0), active = filtersActive(f);
   $("mapCount").textContent = n.toLocaleString("en-US") + (n === 1 ? " lead" : " leads") + " in view";
-  $("listBtn").disabled = !active || n === 0;
-  $("listBtn").textContent = active ? "Show list" : "Filter to list";
-  $("listBtn").title = active ? "" : "Pick a lead type, owner type, score or search to see these leads as a list";
-  if (listOpen && !active) closeList();
+  // the list always works: it shows the leads in the map view (plus any filters)
+  $("listBtn").disabled = n === 0;
+  $("listBtn").textContent = "Show list";
+  $("listBtn").title = active ? "" : "Shows the leads in this map view. Use Filters to narrow them.";
 }
 function mapCard(it) {
   const chips = el("div", { class: "chips" });
@@ -1406,7 +1408,16 @@ function mapCard(it) {
     el("div", { class: "sub", text: [it.v ? "County value " + money(it.v) : null, it.sale ? "Auction " + it.sale : null].filter(Boolean).join(" · ") }),
     el("div", { class: "row2" }, open));
 }
-function openList() { listOpen = true; $("listPanel").classList.remove("hidden"); state.page = 0; search(); }
+let mapCardOpen = null;
+function showMapCard(popup) {
+  if (mapCardOpen && mapCardOpen !== popup) mapCardOpen.remove();
+  mapCardOpen = popup;
+  popup.on("close", () => { if (mapCardOpen === popup) { mapCardOpen = null; $("mapWrap").classList.remove("card-open"); } });
+  $("mapWrap").classList.add("card-open");
+  popup.addTo(leadMap);
+  return popup;
+}
+function openList() { if (mapCardOpen) mapCardOpen.remove(); listOpen = true; $("listPanel").classList.remove("hidden"); state.page = 0; search(); }
 function closeList() { listOpen = false; $("listPanel").classList.add("hidden"); }
 function initMap() {
   if (leadMap) return;
@@ -1443,7 +1454,7 @@ function initMap() {
     leadMap.on("click", "pins", (e) => {
       if (drawing) return;
       const it = JSON.parse(e.features[0].properties.raw);
-      new maplibregl.Popup({ offset: 12, maxWidth: "300px" }).setLngLat(e.features[0].geometry.coordinates).setDOMContent(mapCard(it)).addTo(leadMap);
+      showMapCard(new maplibregl.Popup({ offset: 12, maxWidth: "300px" }).setLngLat(e.features[0].geometry.coordinates).setDOMContent(mapCard(it)));
     });
     leadMap.on("moveend", () => { clearTimeout(mapTimer); mapTimer = setTimeout(() => { refreshMap(); updateFacets(filters()); if (listOpen) { state.page = 0; search(); } }, 300); });
     mapReady = true; refreshMap();
@@ -1595,7 +1606,7 @@ async function showAddressCard(q) {
     box.append(el("div", { class: "row2", style: "margin-top:8px" }, add), msg);
   }
   if (d4dPopup) d4dPopup.remove();
-  d4dPopup = new maplibregl.Popup({ offset: 28, maxWidth: "300px" }).setLngLat([a.lng, a.lat]).setDOMContent(box).addTo(leadMap);
+  d4dPopup = showMapCard(new maplibregl.Popup({ offset: 28, maxWidth: "300px" }).setLngLat([a.lng, a.lat]).setDOMContent(box));
 }
 
 /* ---------- market switcher: built from the data, so every county with real leads shows up on its own ---------- */
