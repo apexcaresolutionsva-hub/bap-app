@@ -840,12 +840,34 @@ let signUp = false;
 /* ---------- auth ---------- */
 function showAuth() { $("auth").classList.remove("hidden"); $("app").classList.add("hidden"); $("pipe").classList.add("hidden"); $("deals").classList.add("hidden"); $("svc").classList.add("hidden"); $("lend").classList.add("hidden"); $("buy").classList.add("hidden"); $("crew").classList.add("hidden"); $("inbox").classList.add("hidden"); clearInterval(ibTimer); $("views").classList.add("hidden"); $("signout").classList.add("hidden"); $("practiceBtn").classList.add("hidden"); $("who").textContent = ""; }
 let shownFor = null;
+// first-touch marketing attribution: which post / ad / site brought this person (stored once per company)
+(function captureAttr() {
+  try {
+    const q = new URLSearchParams(location.search), a = {};
+    for (const k of ["utm_source", "utm_medium", "utm_campaign", "utm_content"]) if (q.get(k)) a[k] = q.get(k).slice(0, 80);
+    const ref = document.referrer && !/(^https?:\/\/)?app\.buybap\.com/.test(document.referrer) ? document.referrer.slice(0, 120) : "";
+    if ((Object.keys(a).length || ref) && !localStorage.getItem("bapAttr")) {
+      a.ref = ref; a.at = new Date().toISOString(); a.landing = (location.pathname + location.hash).slice(0, 80);
+      localStorage.setItem("bapAttr", JSON.stringify(a));
+    }
+  } catch (e) { /* private mode: no attribution */ }
+})();
+async function sendAttr(user) {
+  try {
+    if (user.is_anonymous || localStorage.getItem("bapAttrSent")) return;
+    const a = localStorage.getItem("bapAttr"); if (!a) return;
+    await sb.rpc("ensure_org");
+    const r = await sb.rpc("record_signup_source", { p: JSON.parse(a) });
+    if (!r.error) localStorage.setItem("bapAttrSent", "1");
+  } catch (e) { /* best effort */ }
+}
 async function showApp(user) {
   if (shownFor === user.id) return;          // sign-in fires more than one auth event; build the screen once
   shownFor = user.id;
   $("auth").classList.add("hidden"); $("app").classList.remove("hidden");
   $("signout").classList.remove("hidden"); $("practiceBtn").classList.toggle("hidden", PRACTICE); $("practiceBtn").onclick = enterPractice; $("who").textContent = user.email; $("views").classList.remove("hidden");
   await loadCounties(); await buildStaticFilters(); await loadSaved(); updateFacets(filters()); initMap(); bizNudge(); ibStartPolling();
+  sendAttr(user);
 }
 $("authSwap").onclick = () => {
   signUp = !signUp;
