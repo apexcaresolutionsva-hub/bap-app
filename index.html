@@ -2936,8 +2936,8 @@ async function loadBilling() {
       el("span", { class: "sub", text: " (bought " + (money(b.credits_bought || 0) || "$0") + ", used " + (money(b.credits_used || 0) || "$0") + ")" })));
   if (b.member) {
     const L = b.included_left || {};
-    box.append(el("p", { class: "sub", style: "margin:0 0 8px", text: "Included and still left this month: " + Number(L.national_lead || 0).toLocaleString("en-US") +
-      " nationwide leads · " + Number(L.skiptrace || 0).toLocaleString("en-US") + " skip traces" +
+    box.append(el("p", { class: "sub", style: "margin:0 0 8px", text: "BAP's own leads are unlimited. Included and still left this month: " + Number(L.national_lead || 0).toLocaleString("en-US") +
+      " on-demand nationwide leads · " + Number(L.skiptrace || 0).toLocaleString("en-US") + " skip traces" +
       (L.ai_analysis ? " · " + L.ai_analysis + " AI deal analyses" : "") + ". After that, member prices come out of your credits. Allowances reset on the 1st." }));
   }
   // iPhone app: companion to the web tool, so no purchase buttons or calls to action (App Review 3.1.3(f))
@@ -2952,9 +2952,11 @@ async function loadBilling() {
   for (const p of plans) {
     const price = billInterval === "year" ? p.yearly : p.monthly;
     const isCur = b.member && b.plan === p.key;
-    const lines = [n(p.national_lead) + " nationwide leads a month (any US county)", n(p.skiptrace) + " skip traces a month (owner phones and emails)",
+    const lines = ["Unlimited BAP leads with owner details (county records in 29+ states, updated daily)",
+      "Plus " + n(p.national_lead) + " on-demand nationwide leads a month for counties BAP doesn't cover yet",
+      n(p.skiptrace) + " skip traces a month (owner phones and emails)",
       p.ai_analysis ? p.ai_analysis + " AI deal analyses a month" : "AI deal analysis $1 each",
-      "Unlimited BAP county leads, pipeline, list imports and contracts",
+      "Pipeline, list imports, contracts and e-signing",
       p.seats > 1 ? p.seats + " users on one account" : "1 user"];
     if (Number(p.mail_discount)) lines.push(Math.round(p.mail_discount * 100) + "% off postcards and letters");
     const card = el("div", { style: "border:" + (p.key === "pro" ? "2px solid currentColor" : "1px solid var(--line)") +
@@ -3000,7 +3002,8 @@ async function loadBilling() {
     c.onclick = async () => { await sb.rpc("ensure_org"); billingGo("stripe-checkout", { kind: "credits", pack: dollars }, msg); }; row.append(c);
   }
   if (b.has_billing) { const m = el("button", { class: "ghost small", type: "button", text: "Manage billing" }); m.onclick = () => billingGo("stripe-portal", {}, msg); row.append(m); }
-  box.append(row, el("p", { class: "sub", style: "margin:8px 0 0", text: "Credits pay for anything beyond your plan (and everything on the free plan). " +
+  box.append(row, el("p", { class: "sub", style: "margin:8px 0 0", text: "Unlimited means no monthly cap on BAP's own leads; to stop list copying, each user can open up to 300 new leads a day. " +
+    "Credits pay for anything beyond your plan (and everything on the free plan). " +
     "Payments are processed securely by Stripe. Cancel anytime in Manage billing; your plan stays active to the end of the period you paid for." }), msg);
   if (location.hash === "#billing-success") {
     msg.className = "msg"; msg.textContent = "Payment received. Thank you! Your account updates within a few seconds.";
