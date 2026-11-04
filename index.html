@@ -741,6 +741,24 @@ new MutationObserver(() => {
 }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
 // installable app: register the offline helper (ignored by browsers that don't support it)
 if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+/* team invite links: app.buybap.com/#join-team=TOKEN joins the inviter's BAP account after sign-in */
+(function teamInvite() {
+  const m = /^#join-team=([A-Za-z0-9_-]+)/.exec(location.hash);
+  if (m) { try { localStorage.setItem("bapJoinTeam", m[1]); } catch (e) { window.__joinTeam = m[1]; } history.replaceState(null, "", location.pathname); }
+  let busy = false;
+  const tryJoin = async () => {
+    let t = window.__joinTeam; try { t = localStorage.getItem("bapJoinTeam") || t; } catch (e) { /* storage blocked */ }
+    if (!t || busy || !document.body.classList.contains("signed-in")) return;
+    busy = true;
+    const r = await sb.rpc("accept_invite", { p_token: t });
+    try { localStorage.removeItem("bapJoinTeam"); } catch (e) { /* ignore */ } window.__joinTeam = null;
+    if (r.error) { alert("Team invite: " + r.error.message); busy = false; return; }
+    alert("You joined " + (r.data.org_name || "the team") + " on BAP.");
+    location.reload();
+  };
+  new MutationObserver(tryJoin).observe(document.body, { attributes: true, attributeFilter: ["class"] });
+  addEventListener("load", () => setTimeout(tryJoin, 1500));
+})();
 /* "Install BAP" prompt: Android/Chrome get a one-tap Install button; iPhone/iPad Safari get the two-step Share > Add to Home Screen
    instructions (Apple has no install button for web apps). Hidden once installed, and for 30 days after "Not now". */
 (function installPrompt() {
@@ -2136,7 +2154,10 @@ function openNational() {
     last = r;
     const n = Math.min(Number(r.count) || 0, Number(max.value));
     msg.textContent = (Number(r.count) || 0).toLocaleString("en-US") + " found in " + where.label + (r.cached ? " (checked earlier today)" : "") + "." +
-      (n ? " Adding " + n + " costs " + (r.exempt ? "nothing (your account is exempt)" : "$" + (n * r.price).toFixed(2) + " from your BAP credits ($" + Number(r.price).toFixed(2) + " each; balance $" + Number(r.balance).toFixed(2) + ")") + "." : "");
+      (n ? " Adding " + n + (r.exempt ? " costs nothing (your account is exempt)."
+        : Math.min(n, Number(r.included_left) || 0) >= n ? " is included in your plan (" + Number(r.included_left) + " nationwide leads left this month)."
+        : (Number(r.included_left) > 0 ? ": " + Number(r.included_left) + " included in your plan, the other " + (n - Number(r.included_left)) : " costs") +
+          " $" + ((n - (Number(r.included_left) || 0)) * r.price).toFixed(2) + " from your BAP credits ($" + Number(r.price).toFixed(2) + " each; balance $" + Number(r.balance).toFixed(2) + ").") : "");
     pull.classList.toggle("hidden", !n);
   };
   max.onchange = () => { if (last) check.onclick(); };
@@ -2890,11 +2911,13 @@ async function billingGo(fn, body, msg) {
   msg.className = "sub"; msg.textContent = "Opening secure checkout…";
   const { data, error } = await sb.functions.invoke(fn, { body });
   if (data && data.url) { location.href = data.url; return; }
+  if (data && data.updated) { msg.className = "msg"; msg.textContent = data.message; setTimeout(loadBilling, 2500); return; }
   let text = (data && data.error) || (error && error.message) || "Something went wrong.";
   if (error && error.context && typeof error.context.json === "function") { try { text = (await error.context.json()).error || text; } catch (e) { /* keep */ } }
   if (data && data.practice) text = "Practice mode: checkout was simulated. Nothing was charged.";
   msg.className = "msg err"; msg.textContent = text;
 }
+let billInterval = "month";
 async function loadBilling() {
   const box = $("billPanel"); if (!box) return;
   box.textContent = "";
@@ -2902,23 +2925,83 @@ async function loadBilling() {
   const msg = el("p", { class: "sub", role: "status" });
   if (error || !b) { box.append(el("p", { class: "sub", text: "Billing isn't available right now." })); return; }
   const until = b.period_end ? new Date(b.period_end).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
+  const plans = b.plans || [];
   const status = b.member
-    ? "Member" + (b.status === "past_due" ? " (payment past due: update your card)" : until ? " · renews or ends " + until : "")
-    : (NATIVE ? "Plan: pay as you go" : "Not a member yet: members get lower prices on every service.");
-  box.append(el("h3", { style: "margin:0 0 6px", text: "Membership & credits" }),
+    ? (b.plan_name || "Member") + " plan" + (b.status === "trialing" ? " · free trial" + (until ? " until " + until : "")
+      : b.status === "past_due" ? " (payment past due: update your card)" : until ? " · renews or ends " + until : "")
+    : "Free plan: browse BAP's leads and pay as you go at non-member prices.";
+  box.append(el("h3", { style: "margin:0 0 6px", text: "Plan & credits" }),
     el("p", { style: "margin:0 0 4px" }, el("b", { text: status })),
-    el("p", { style: "margin:0 0 10px" }, "Credit balance: ", el("b", { text: money(b.credit_balance || 0) || "$0" }),
+    el("p", { style: "margin:0 0 6px" }, "Credit balance: ", el("b", { text: money(b.credit_balance || 0) || "$0" }),
       el("span", { class: "sub", text: " (bought " + (money(b.credits_bought || 0) || "$0") + ", used " + (money(b.credits_used || 0) || "$0") + ")" })));
+  if (b.member) {
+    const L = b.included_left || {};
+    box.append(el("p", { class: "sub", style: "margin:0 0 8px", text: "Included and still left this month: " + Number(L.national_lead || 0).toLocaleString("en-US") +
+      " nationwide leads · " + Number(L.skiptrace || 0).toLocaleString("en-US") + " skip traces" +
+      (L.ai_analysis ? " · " + L.ai_analysis + " AI deal analyses" : "") + ". After that, member prices come out of your credits. Allowances reset on the 1st." }));
+  }
   // iPhone app: companion to the web tool, so no purchase buttons or calls to action (App Review 3.1.3(f))
-  if (NATIVE) { box.append(el("p", { class: "sub", style: "margin:8px 0 0", text: "Membership and credits are managed in your BAP account on the web." }), msg); return; }
+  if (NATIVE) { box.append(el("p", { class: "sub", style: "margin:8px 0 0", text: "Plans and credits are managed in your BAP account on the web." }), msg); return; }
+  const tog = el("div", { class: "row2", style: "gap:6px;margin:8px 0" });
+  for (const [v, t] of [["month", "Monthly"], ["year", "Yearly: 2 months free"]]) {
+    const bt = el("button", { type: "button", class: v === billInterval ? "primary small" : "ghost small", text: t, "aria-pressed": String(v === billInterval) });
+    bt.onclick = () => { billInterval = v; loadBilling(); }; tog.append(bt);
+  }
+  const grid = el("div", { style: "display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px;margin:4px 0 12px" });
+  const n = (x) => Number(x).toLocaleString("en-US");
+  for (const p of plans) {
+    const price = billInterval === "year" ? p.yearly : p.monthly;
+    const isCur = b.member && b.plan === p.key;
+    const lines = [n(p.national_lead) + " nationwide leads a month (any US county)", n(p.skiptrace) + " skip traces a month (owner phones and emails)",
+      p.ai_analysis ? p.ai_analysis + " AI deal analyses a month" : "AI deal analysis $1 each",
+      "Unlimited BAP county leads, pipeline, list imports and contracts",
+      p.seats > 1 ? p.seats + " users on one account" : "1 user"];
+    if (Number(p.mail_discount)) lines.push(Math.round(p.mail_discount * 100) + "% off postcards and letters");
+    const card = el("div", { style: "border:" + (p.key === "pro" ? "2px solid currentColor" : "1px solid var(--line)") +
+        ";border-radius:var(--radius);padding:12px;background:var(--bg);display:grid;gap:6px;align-content:start" },
+      el("div", { class: "row2", style: "justify-content:space-between;align-items:center" }, el("b", { text: p.name }),
+        p.key === "pro" ? el("span", { class: "badge", text: "Most popular" }) : null),
+      el("div", {}, el("b", { style: "font-size:1.5rem", text: "$" + n(price) }), el("span", { class: "sub", text: billInterval === "year" ? " a year" : " a month" })),
+      el("ul", { style: "margin:0;padding-left:18px;font-size:.92rem;display:grid;gap:2px" }, ...lines.map((t) => el("li", { text: t }))));
+    const trial = p.key === "pro" && !b.member && !b.trial_used;
+    const btn = el("button", { type: "button", class: isCur ? "ghost small" : "primary small",
+      text: isCur ? "Your plan" : trial ? "Start 7-day free trial" : b.member ? "Switch to " + p.name : "Choose " + p.name });
+    btn.disabled = isCur;
+    btn.onclick = async () => {
+      if (b.member && !confirm("Switch to " + p.name + " (" + (billInterval === "year" ? "yearly" : "monthly") + ")? Stripe adjusts your next bill for the difference.")) return;
+      await sb.rpc("ensure_org");
+      billingGo("stripe-checkout", { kind: "plan", plan: p.key, interval: billInterval }, msg);
+    };
+    card.append(btn); grid.append(card);
+  }
+  box.append(tog, grid);
+  if (b.plan === "team") {   // Team plan: invite up to 2 more users to this account
+    const em = el("input", { type: "email", placeholder: "teammate@email.com", style: "flex:1;min-width:200px" });
+    const inv = el("button", { type: "button", class: "primary small", text: "Invite teammate" });
+    const out = el("div", { class: "sub", role: "status" });
+    inv.onclick = async () => {
+      out.textContent = "";
+      const r = await sb.rpc("invite_member", { p_email: em.value.trim() });
+      if (r.error) { out.textContent = r.error.message; return; }
+      const link = r.data.link, note = "Join my BAP team: open this link and sign in with " + r.data.email + ": " + link;
+      const copy = el("button", { type: "button", class: "ghost small", text: "Copy link" });
+      copy.onclick = async () => { try { await navigator.clipboard.writeText(link); copy.textContent = "Copied"; } catch (e) { prompt("Copy this invite link:", link); } };
+      out.append("Invite ready for " + r.data.email + " (expires " + new Date(r.data.expires_at).toLocaleDateString("en-US") + "). ", copy, " ",
+        el("a", { href: "mailto:" + r.data.email + "?subject=" + encodeURIComponent("Join my BAP team") + "&body=" + encodeURIComponent(note), text: "Email it" }), " ",
+        el("a", { href: "sms:?&body=" + encodeURIComponent(note), text: "Text it" }));
+      em.value = "";
+    };
+    box.append(el("h4", { style: "margin:4px 0", text: "Your team (Team plan: up to 3 users)" }),
+      el("div", { class: "row2", style: "gap:8px;flex-wrap:wrap" }, em, inv), out);
+  }
   const row = el("div", { class: "row2" });
-  if (!b.member) { const j = el("button", { class: "primary small", type: "button", text: "Join BAP: $49/month" }); j.onclick = () => billingGo("stripe-checkout", { kind: "membership" }, msg); row.append(j); }
   for (const dollars of CREDIT_PACKS) {
     const c = el("button", { class: "ghost small", type: "button", text: "Buy $" + dollars + " credits" });
-    c.onclick = () => billingGo("stripe-checkout", { kind: "credits", pack: dollars }, msg); row.append(c);
+    c.onclick = async () => { await sb.rpc("ensure_org"); billingGo("stripe-checkout", { kind: "credits", pack: dollars }, msg); }; row.append(c);
   }
   if (b.has_billing) { const m = el("button", { class: "ghost small", type: "button", text: "Manage billing" }); m.onclick = () => billingGo("stripe-portal", {}, msg); row.append(m); }
-  box.append(row, el("p", { class: "sub", style: "margin:8px 0 0", text: "Payments are processed securely by Stripe. Cancel anytime in Manage billing; membership stays active to the end of the month you paid for." }), msg);
+  box.append(row, el("p", { class: "sub", style: "margin:8px 0 0", text: "Credits pay for anything beyond your plan (and everything on the free plan). " +
+    "Payments are processed securely by Stripe. Cancel anytime in Manage billing; your plan stays active to the end of the period you paid for." }), msg);
   if (location.hash === "#billing-success") {
     msg.className = "msg"; msg.textContent = "Payment received. Thank you! Your account updates within a few seconds.";
     history.replaceState(null, "", location.pathname);
