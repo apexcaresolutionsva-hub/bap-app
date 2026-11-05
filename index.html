@@ -3033,6 +3033,8 @@ async function loadBilling() {
   }
   // iPhone app: companion to the web tool, so no purchase buttons or calls to action (App Review 3.1.3(f))
   if (NATIVE) { box.append(el("p", { class: "sub", style: "margin:8px 0 0", text: "Plans and credits are managed in your BAP account on the web." }), msg); return; }
+  // Launch Lock banner: shows only while the offer is approved, open and has spots left (see launch_lock_status)
+  if (!b.member) { try { const { data: ll } = await sb.rpc("launch_lock_status"); if (ll && ll.live) box.append(el("div", { style: "border:2px solid currentColor;border-radius:var(--radius);padding:10px 12px;margin:8px 0" }, el("b", { text: "Launch Lock: " + ll.spots_left + " of 100 spots left" }), el("p", { class: "sub", style: "margin:4px 0 0", text: "Join any paid plan by Dec 2 and keep that price for as long as you stay subscribed, plus a free $20 credit pack once your first payment goes through." }))); } catch (e) {} }
   const tog = el("div", { class: "row2", style: "gap:6px;margin:8px 0" });
   for (const [v, t] of [["month", "Monthly"], ["year", "Yearly: 2 months free"]]) {
     const bt = el("button", { type: "button", class: v === billInterval ? "primary small" : "ghost small", text: t, "aria-pressed": String(v === billInterval) });
