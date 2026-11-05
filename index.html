@@ -192,6 +192,13 @@ main.results { position: relative; padding: 0; }
 select, input, textarea { max-width: 100%; box-sizing: border-box; }
 .note, .hint, p { overflow-wrap: anywhere; }
 .maplibregl-popup-content .mapcard { padding: 2px; }
+#fCountyPick { position: relative; }
+#fCountyPick input { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); color: var(--ink); font: inherit; }
+.cpick { position: absolute; left: 0; right: 0; z-index: 30; max-height: 260px; overflow-y: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 6px 18px rgba(0,0,0,.18); margin-top: 4px; }
+.copt { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 10px 12px; font: inherit; color: var(--ink); cursor: pointer; }
+.copt:hover, .copt:focus { background: var(--panel); }
+.cchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.cchip { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 999px; padding: 5px 10px; font: inherit; font-size: 13px; cursor: pointer; }
 #heatBtn[aria-pressed="true"] { background: #16202b; color: #fff; }
 .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
 .count { font-size: 20px; font-weight: 700; }
@@ -349,12 +356,13 @@ tbody tr:last-child td { border-bottom: 0; }
   <aside class="filters" id="filters" aria-label="Filters">
     <div class="fhead"><h2 style="margin:0">Filters</h2><button class="ghost small" id="fClose" type="button" aria-label="Close filters">Done ✕</button></div>
     <h2>County</h2>
-    <div class="checks" id="fCounties"></div>
+    <div id="fCountyPick"></div>
+    <div class="checks hidden" id="fCounties"></div>
     <h2>Lead type</h2>
     <p class="hint">Narrows the list: a lead must have every checked type. Numbers show how many are in the current map view.</p>
     <div class="checks" id="fKinds"></div>
     <p class="hint hidden" id="fKindsNote" style="margin-top:6px"></p>
-    <h2>Owner</h2>
+    <h2>Owner &amp; property</h2>
     <p class="hint">Narrows the list: the owner must match every checked box. Owner details are only available in some counties so far.</p>
     <div class="checks" id="fFlags"></div>
     <p class="hint hidden" id="fFlagsNone" style="margin-top:6px">No owner details for the area on the map yet. Move the map to a county that has them (some Texas counties so far) or zoom out.</p>
@@ -819,7 +827,7 @@ const KINDS = {
   other: "Unregistered rental", obituary_no_probate: "Owner deceased"
 };
 const FLAGS = { absentee: "Absentee owner", out_of_state: "Out-of-state owner", senior: "Senior (65+)",
-  corporate: "Company-owned", homestead: "Owner lives there" };   // high equity returns once equity estimates are loaded
+  corporate: "Company-owned", homestead: "Owner lives there", land: "Vacant land (no building)" };   // high equity returns once equity estimates are loaded
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, attrs = {}, ...kids) => {
@@ -911,6 +919,42 @@ async function loadCounties() {
   const names = (src || []).map((r) => r.county);
   for (const r of src || []) box.append(el("label", {}, el("input", { type: "checkbox", value: r.value || r.county, "data-f": "county" }), r.county + (r.states ? ", " + r.states : "")));
   if (!names.length && !error) box.append(el("span", { class: "sub", text: "No counties loaded yet" }));
+  buildCountyPicker();
+}
+// type-to-search county dropdown; the hidden checkboxes above stay the source of truth for filters and saved lists
+function buildCountyPicker() {
+  const host = $("fCountyPick"); host.textContent = "";
+  const opts = [...$("fCounties").querySelectorAll("input")].map((i) => ({ i, label: i.parentElement.textContent.trim() }));
+  const input = el("input", { type: "search", placeholder: "Type a county or state\u2026", "aria-label": "Find a county", autocomplete: "off" });
+  const list = el("div", { class: "cpick hidden", role: "listbox" });
+  const chips = el("div", { class: "cchips" });
+  const pick = (o, on) => { o.i.checked = on; o.i.dispatchEvent(new Event("change", { bubbles: true })); renderCountyChips(); };
+  const draw = () => {
+    const q = input.value.trim().toLowerCase(); list.textContent = "";
+    const hits = opts.filter((o) => !o.i.checked && (!q || o.label.toLowerCase().includes(q))).slice(0, 50);
+    for (const o of hits) {
+      const b = el("button", { type: "button", class: "copt", role: "option", text: o.label });
+      b.onmousedown = (e) => e.preventDefault();
+      b.onclick = () => { pick(o, true); input.value = ""; draw(); };
+      list.append(b);
+    }
+    if (!hits.length) list.append(el("div", { class: "sub", style: "padding:8px 12px", text: "No matching county" }));
+  };
+  input.onfocus = () => { list.classList.remove("hidden"); draw(); };
+  input.oninput = draw;
+  input.onblur = () => setTimeout(() => list.classList.add("hidden"), 150);
+  input.addEventListener("change", (e) => e.stopPropagation());
+  host.append(input, list, chips);
+  window.renderCountyChips = () => {
+    chips.textContent = "";
+    for (const o of opts.filter((x) => x.i.checked)) {
+      const c = el("button", { type: "button", class: "cchip", "aria-label": "Remove " + o.label, text: o.label + " \u2715" });
+      c.onclick = () => pick(o, false);
+      chips.append(c);
+    }
+    if (!chips.childElementCount) chips.append(el("span", { class: "sub", text: "All counties" }));
+  };
+  renderCountyChips();
 }
 async function buildStaticFilters() {
   const k = $("fKinds");
@@ -962,6 +1006,7 @@ function filters() {
 function applyFilters(f) {
   for (const [box, vals] of [["fCounties", f.counties], ["fKinds", f.kinds], ["fFlags", f.flags]])
     $(box).querySelectorAll("input").forEach((i) => { i.checked = (vals || []).includes(i.value); });
+  if (window.renderCountyChips) renderCountyChips();
   $("fSale").value = f.sale || ""; $("fSweet").checked = !!f.sweet;
   if (typeof drawArea !== "undefined") { drawArea = f.area || null; drawing = null; redrawArea(); setDrawUi(); } $("fScore").value = f.score || 0; $("fScoreVal").textContent = f.score || 0;
   $("fQ").value = f.q || ""; $("sort").value = f.sort || "score";
@@ -1602,6 +1647,7 @@ async function showAddressCard(q) {
   const hit = (data && data.mode === "pins" ? data.items : [])[0];
   const box = el("div", { class: "mapcard", style: "max-width:270px" });
   box.append(el("b", { text: a.label || q }));
+  const photoBox = el("div"); box.append(photoBox); housePhoto(photoBox, { lat: a.lat, lng: a.lng, address: a.label || q });
   if (!a.exact) box.append(el("div", { class: "sub", text: "Approximate location (street-level match)." }));
   if (hit) box.append(el("div", { class: "note", style: "margin:6px 0", text: "BAP lead: " + (hit.k || []).map((k) => KINDS[k] || k).join(", ") +
     (hit.v ? " · county value " + money(hit.v) : "") + (hit.o ? " · owner " + hit.o : "") }));
@@ -1784,7 +1830,7 @@ async function openDetail(id) {
   const p = data.property;
   window.__ownerName = title(p.owner_name); window.__prop = p;
   box.append(el("h2", { text: p.address_line || "Address unknown" }),
-    el("div", { class: "sub", text: [[p.city, "TX", p.zip].filter(Boolean).join(" "), p.county + " County"].join(", ") }));
+    el("div", { class: "sub", text: [[p.city, (p.state || "TX").trim(), p.zip].filter(Boolean).join(" "), p.county ? p.county + " County" : ""].filter(Boolean).join(", ") }));
   const acc = data.access || {};   // the database decides what this account may see (owner, mailing address, house number)
   if (acc.locked) box.append(el("p", { class: "msg", style: "margin:8px 0", text:
     acc.reason === "demo" ? "Demo view: the owner, mailing address and house number are hidden. Create a free BAP account to unlock 10 leads a month."
@@ -1803,9 +1849,10 @@ async function openDetail(id) {
   const tags = [p.absentee && "Absentee", p.out_of_state && "Out of state", p.corporate_owner && "Company-owned",
     p.senior_exempt && "Senior (65+)", p.homestead && "Homestead"].filter(Boolean).join(", ");
   fact("Owner signals", tags);
-  box.append(facts);
+  const photoBox = el("div"); box.append(photoBox, facts);
   // look the property up elsewhere in one click
-  const full = [p.address_line, p.city, "TX", p.zip].filter(Boolean).join(", ");
+  const full = [p.address_line, p.city, (p.state || "TX").trim(), p.zip].filter(Boolean).join(", ");
+  housePhoto(photoBox, { address: full });
   const enc = encodeURIComponent(full);
   const links = el("p", { class: "links" },
     el("a", { href: "https://www.google.com/maps/search/?api=1&query=" + enc, target: "_blank", rel: "noopener", text: "Google Maps" }),
@@ -3513,8 +3560,66 @@ function proFinder(kind, mount) {
   };
   mount.append(el("div", { class: "panel" },
     el("h3", { style: "margin:0 0 4px", text: "Top 5 " + (kind === "lender" ? "lenders" : "contractors") + " near a ZIP" }),
+    claimsQueue(kind),
     joinBanner(kind),
     el("div", { class: "row2" }, zip, cat, go, msg), def, glossary, out, el("div", { class: "row2", style: "margin-top:8px" }, sendBtn), pkg));
+}
+
+// Street View house photo: members only, billed per photo, so it loads only when a property is opened
+async function housePhoto(holder, q) {
+  holder.textContent = "";
+  const r = await sb.functions.invoke("house-photo", { body: q }).catch(() => null);
+  const d = r && r.data;
+  if (d && d.ok && d.image) {
+    holder.append(el("img", { src: d.image, alt: "Street View photo of the property", style: "width:100%;max-height:220px;object-fit:cover;border-radius:10px;display:block;margin:6px 0 2px" }),
+      el("div", { class: "sub", style: "font-size:11px", text: "\u00a9 Google Street View" + (d.date ? " \u00b7 photo from " + d.date : "") }));
+  } else if (d && d.reason === "members_only") {
+    holder.append(el("div", { class: "sub", style: "margin:4px 0", text: "\ud83d\udcf7 House photos come with BAP membership." }));
+  }
+}
+
+// "Claim this listing": a business that finds its Google or state-sourced listing asks to manage it
+function claimForm(mount, p) {
+  if (mount.childElementCount) { mount.textContent = ""; return; }
+  const name = el("input", { "aria-label": "Your name", placeholder: "Your name *" });
+  const email = el("input", { type: "email", "aria-label": "Email", placeholder: "Email *" });
+  const phone = el("input", { type: "tel", "aria-label": "Phone", placeholder: "Phone" });
+  const role = el("select", { "aria-label": "Your role" }, ...["Owner", "Manager", "Employee"].map((t) => el("option", { value: t, text: t })));
+  const trap = el("input", { type: "text", tabindex: "-1", autocomplete: "off", style: "position:absolute;left:-9999px", "aria-hidden": "true" });
+  const msg = el("div", { class: "sub", role: "status" });
+  const send = el("button", { type: "button", class: "primary small", text: "Send claim" });
+  send.onclick = async () => {
+    send.disabled = true; msg.textContent = "Sending\u2026";
+    const { data, error } = await sb.rpc("claim_listing", { p: { pro_id: p.id, name: name.value, email: email.value, phone: phone.value, role: role.value, website_hp: trap.value } });
+    if (error || !data || !data.ok) { msg.textContent = (data && data.error) || (error && error.message) || "Couldn't send."; send.disabled = false; return; }
+    mount.textContent = ""; mount.append(el("div", { class: "note", style: "margin-top:6px", text: data.message || "Claim sent." }));
+  };
+  mount.append(el("div", { class: "panel", style: "margin-top:6px" },
+    el("div", { class: "sub", text: "Own " + p.business_name + "? Claim it to add your email, service area and details, and get the verified badge. We confirm by calling the number on the listing." }),
+    el("div", { class: "row2", style: "margin-top:6px;flex-wrap:wrap" }, name, email, phone, role, trap, send), msg));
+}
+
+// owner-only queue of listing claims (the RPC returns nothing for anyone else)
+function claimsQueue(kind) {
+  const box = el("div");
+  sb.rpc("pending_claims").then(({ data }) => {
+    const rows = (data || []).filter((c) => c.kind === kind);
+    if (!rows.length) return;
+    box.append(el("h3", { style: "margin:4px 0", text: "Listing claims waiting for you (" + rows.length + ")" }),
+      el("div", { class: "sub", text: "Call the number on the listing to confirm it's really them, then approve." }));
+    for (const c of rows) {
+      const card = el("div", { class: "panel", style: "margin:6px 0" },
+        el("b", { text: c.business_name }),
+        el("div", {}, "Listing phone: ", c.listing_phone ? el("a", { href: "tel:" + c.listing_phone.replace(/[^\d+]/g, ""), text: c.listing_phone }) : "none"),
+        el("div", { class: "sub", text: "Claimed by " + [c.claimant_name, c.role, c.email, c.phone].filter(Boolean).join(" \u00b7 ") }));
+      const ok = el("button", { type: "button", class: "primary small", text: "Approve" }), no = el("button", { type: "button", class: "small", text: "Reject" });
+      const act = async (yes) => { ok.disabled = no.disabled = true; await sb.rpc("approve_claim", { p_id: c.id, p_ok: yes }); card.remove(); };
+      ok.onclick = () => act(true); no.onclick = () => act(false);
+      card.append(el("div", { style: "display:flex;gap:6px;margin-top:6px" }, ok, no));
+      box.append(card);
+    }
+  });
+  return box;
 }
 
 function proCard(kind, p, picked, onPick) {
@@ -3545,7 +3650,13 @@ function proCard(kind, p, picked, onPick) {
     cb.onchange = () => { cb.checked ? picked.set(p.id, p) : picked.delete(p.id); onPick(); };
     head.append(el("label", { class: "sub", style: "white-space:nowrap" }, cb, " Send package"));
   }
-  return el("div", { class: "panel", style: "margin-top:8px" }, head, ...lines, el("div", { class: "row2", style: "margin-top:6px" }, save));
+  const actions = el("div", { class: "row2", style: "margin-top:6px" }, save), claimBox = el("div");
+  if (/not yet verified on BAP/.test(p.about || "")) {
+    const claim = el("button", { class: "ghost small", type: "button", text: "Your business? Claim it" });
+    claim.onclick = () => claimForm(claimBox, p);
+    actions.append(claim);
+  }
+  return el("div", { class: "panel", style: "margin-top:8px" }, head, ...lines, actions, claimBox);
 }
 
 async function loanPackageForm(mount, lenders) {
