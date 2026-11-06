@@ -1597,18 +1597,63 @@ async function myPosition() {
     ? navigator.geolocation.getCurrentPosition((p) => res(p.coords), rej, { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 })
     : rej(new Error("location isn\u2019t available on this device")));
 }
+/* where am I standing? BAP's own records first, then the open map's nearest house number; if neither, a card that asks only for the number */
+const metersApart = (lat1, lng1, lat2, lng2) => Math.hypot((lng2 - lng1) * Math.cos(lat1 * Math.PI / 180) * 111320, (lat2 - lat1) * 110540);
+async function reverseAddress(lat, lng) {
+  try {
+    const { data } = await sb.rpc("nearest_address", { p_lat: lat, p_lng: lng, p_meters: 45 });
+    if (data && data.address) return { q: [data.address, data.city, [data.state, data.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ") };
+  } catch (e) { /* fall through */ }
+  let near = {};
+  try {
+    const r = await fetch("https://photon.komoot.io/reverse?lang=en&limit=15&radius=0.1&lat=" + lat + "&lon=" + lng);
+    const fs = (await r.json()).features || [];
+    let best = null, bd = 1e9;
+    for (const f of fs) {
+      const p = f.properties || {};
+      if (!near.street && (p.street || (p.osm_key === "highway" && p.name))) near = { street: p.street || p.name, city: p.city || p.town || p.district || p.county || "", state: stateCode(p.state), zip: (p.postcode || "").slice(0, 5) };
+      if (!p.housenumber || !p.street) continue;
+      const d = metersApart(lat, lng, f.geometry.coordinates[1], f.geometry.coordinates[0]);
+      if (d < bd) { bd = d; best = p; }
+    }
+    if (best && bd <= 60) return { q: [best.housenumber + " " + best.street, best.city || best.town || best.district || best.county || "", [stateCode(best.state), (best.postcode || "").slice(0, 5)].filter(Boolean).join(" ")].filter(Boolean).join(", ") };
+  } catch (e) { /* fall through */ }
+  return { near };
+}
+async function showPointCard(lat, lng) {
+  $("mapCount").textContent = "Finding the address here…";
+  const r = await reverseAddress(lat, lng);
+  if (r.q) { $("mapQ").value = r.q; $("mapCount").textContent = ""; await showAddressCard(r.q); return; }
+  const n = r.near || {};
+  const tail = [n.street, n.city, [n.state, n.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  leadMap.flyTo({ center: [lng, lat], zoom: Math.max(leadMap.getZoom(), 17) });
+  if (d4dMarker) d4dMarker.remove();
+  d4dMarker = new maplibregl.Marker({ color: "#1d3557" }).setLngLat([lng, lat]).addTo(leadMap);
+  const box = el("div", { class: "mapcard", style: "max-width:270px" });
+  box.append(el("b", { text: tail ? "Near " + tail : "This spot" }));
+  const photoBox = el("div"); box.append(photoBox); housePhoto(photoBox, { lat, lng, address: tail });
+  box.append(el("div", { class: "sub", style: "margin:6px 0", text: "No house number on file for this exact spot. Type the number on the mailbox or door:" }));
+  const num = el("input", { type: "text", inputmode: "numeric", placeholder: "House #", style: "width:90px" });
+  const go = el("button", { class: "primary small", type: "button", text: "Look it up" });
+  const run = () => { const v = num.value.trim(); if (!v) { num.focus(); return; } const q = v + " " + (tail || ""); $("mapQ").value = q; showAddressCard(q); };
+  go.onclick = run; num.onkeydown = (e) => { if (e.key === "Enter") run(); };
+  box.append(el("div", { class: "row2" }, num, go));
+  box.append(el("div", { class: "row2", style: "margin-top:6px" },
+    el("a", { href: "https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=" + lat + "," + lng, target: "_blank", rel: "noopener", text: "Street View" }),
+    el("a", { href: "https://www.google.com/maps/search/?api=1&query=" + lat + "," + lng, target: "_blank", rel: "noopener", text: "Google Maps" })));
+  box.append(el("div", { class: "sub", style: "margin-top:6px", text: "Tip: you can also tap any house on the map." }));
+  $("mapCount").textContent = "";
+  if (d4dPopup) d4dPopup.remove();
+  d4dPopup = showMapCard(new maplibregl.Popup({ offset: 28, maxWidth: "300px" }).setLngLat([lng, lat]).setDOMContent(box));
+}
 $("myLoc").onclick = async () => {
-  const b = $("myLoc"); b.disabled = true; b.textContent = "\u2026";
+  const b = $("myLoc"); b.disabled = true; b.textContent = "…";
   try {
     const c = await myPosition();
-    const r = await fetch("https://photon.komoot.io/reverse?lang=en&limit=1&lat=" + c.latitude + "&lon=" + c.longitude);
-    const p = ((((await r.json()).features || [])[0] || {}).properties) || {};
-    if (!p.housenumber || !p.street) { alert("No street address found right here. Type the address in the search box instead."); return; }
-    const q = [p.housenumber + " " + p.street, p.city || p.district || p.county || "", [p.state, p.postcode].filter(Boolean).join(" ")].filter(Boolean).join(", ");
-    $("mapQ").value = q; await showAddressCard(q);
+    await showPointCard(c.latitude, c.longitude);
   } catch (e) {
-    alert(e && e.code === 1 ? "Location is turned off for BAP. Allow it in Settings to use \ud83d\udccd." : "Couldn\u2019t get your location: " + ((e && e.message) || e));
-  } finally { b.disabled = false; b.textContent = "\ud83d\udccd"; }
+    alert(e && e.code === 1 ? "Location is turned off for BAP. Allow it for this site (or the BAP app) in your phone's Settings, then tap 📍 again." : "Couldn’t get your location: " + ((e && e.message) || e));
+  } finally { b.disabled = false; b.textContent = "📍"; }
 };
 async function geocodeAddress(q) {
   // 1) US Census Bureau geocoder (authoritative, every US street address), called directly via JSONP
@@ -1736,6 +1781,14 @@ function initDrawLayers() {
     paint: { "heatmap-weight": ["interpolate", ["linear"], ["coalesce", ["get", "n"], 1], 1, 0.15, 50, 0.45, 500, 0.8, 5000, 1],
       "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 6, 18, 10, 30, 14, 40], "heatmap-opacity": 0.75,
       "heatmap-color": ["interpolate", ["linear"], ["heatmap-density"], 0, "rgba(42,120,214,0)", 0.2, "#7fb3e8", 0.45, "#f2c14e", 0.7, "#e07b00", 1, "#b42318"] } }, "clusters");
+  // driving for dollars: tap any house (zoomed in, not on a lead pin) to look it up
+  leadMap.on("click", (e) => {
+    if (drawing || leadMap.getZoom() < 15) return;
+    let onPin = [];
+    try { onPin = leadMap.queryRenderedFeatures(e.point, { layers: ["pins", "clusters"].filter((l) => leadMap.getLayer(l)) }); } catch (x) { /* no pin layers */ }
+    if (onPin.length) return;
+    showPointCard(e.lngLat.lat, e.lngLat.lng);
+  });
   leadMap.on("click", (e) => {
     if (!drawing) return;
     const pt = [e.lngLat.lng, e.lngLat.lat];
