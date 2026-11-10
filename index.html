@@ -2541,6 +2541,12 @@ let dialPoll = null;
 const stopDialPoll = () => { if (dialPoll) { clearInterval(dialPoll); dialPoll = null; } };
 // browser phone: Twilio's Voice SDK turns this tab into your line (microphone + speakers), so there is no phone call to hold open
 let bapDevice = null, bapCall = null, prevDialStatus = null, voiceSdkP = null;
+// give the microphone back: hang up and destroy the phone so the browser's "microphone in use" light goes off
+const releaseBrowserLine = () => {
+  try { if (bapCall) bapCall.disconnect(); } catch (e) { /* already closed */ }
+  try { if (bapDevice) bapDevice.destroy(); } catch (e) { /* already closed */ }
+  bapCall = null; bapDevice = null;
+};
 const loadVoiceSdk = () => (voiceSdkP = voiceSdkP || new Promise((res, rej) => {
   if (window.Twilio && window.Twilio.Device) return res();
   const sc = document.createElement("script"); sc.src = "https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.12.0/dist/twilio.min.js";
@@ -2608,7 +2614,7 @@ function openListDialer() {
       bapDevice = new window.Twilio.Device(t.token, { codecPreferences: ["opus", "pcmu"], closeProtection: true });
       bapDevice.on("error", (e) => say("Audio problem: " + ((e && e.message) || e), true));
       bapCall = await bapDevice.connect({ params: { s: sessionId } });
-      bapCall.on("disconnect", () => { bapCall = null; refresh(); });
+      bapCall.on("disconnect", () => { releaseBrowserLine(); refresh(); });
     } catch (e) { say("Couldn't open your computer's audio: " + ((e && e.message) || e), true); await dialInvoke({ action: "list_control", op: "stop" }); }
   };
   const termsView = () => {
@@ -2626,7 +2632,7 @@ function openListDialer() {
   const control = async (op) => {
     const d = await dialInvoke({ action: "list_control", op });
     if (d.ok === false) say(d.reason || "Couldn't do that.", true); else say("");
-    if (op === "stop" && bapDevice) { try { bapDevice.disconnectAll(); } catch (e) { /* already closed */ } }
+    if (op === "stop") releaseBrowserLine();
     refresh();
   };
   const runView = (s) => {
@@ -2674,6 +2680,7 @@ function openListDialer() {
       if (!dialPoll) dialPoll = setInterval(refresh, 2000);
     } else {
       stopDialPoll();
+      if (s && s.status) releaseBrowserLine();   // the server says the session is over (finished, stopped, practice): never leave the microphone open. A blank answer (network hiccup) must not hang up a live call.
       if (!body.querySelector("button.primary") || (s && s.status)) idleView(s && s.status ? s : null);
     }
   }
