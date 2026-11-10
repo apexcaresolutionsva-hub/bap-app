@@ -75,6 +75,20 @@ header.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; d
 .bar .views .moreBtn, .moreSheet { display: none; }
 .pipe { padding: 18px 22px; }
 .stages { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.selcell { width: 34px; padding-right: 0; }
+.selcell input { width: 18px; height: 18px; accent-color: var(--brand); cursor: pointer; }
+#pBulk { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 56px); z-index: 4; margin: 0 0 10px; padding: 10px 14px; background: var(--tint); border-color: var(--brand); }
+.todayHead { display: grid; gap: 2px; margin-bottom: 14px; }
+.todayHead h2 { font-size: 28px; margin: 0; letter-spacing: -.02em; }
+.tCard { border: 1px solid var(--line); background: var(--panel); border-radius: var(--radius); padding: 14px; margin-bottom: 14px; display: grid; gap: 10px; }
+.tCard h3 { margin: 0; font-size: 17px; }
+.tHead { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tRow { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); cursor: pointer; }
+.tRow:hover, .tRow:focus-visible { border-color: var(--brand); }
+.tRow .addr { font-weight: 650; }
+.tProg { height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; }
+.tProg i { display: block; height: 100%; background: var(--brand); border-radius: 99px; }
+@media (max-width: 860px) { .selcell { width: auto; } }
 .stages button { background: var(--bg); border: 1px solid var(--line); border-radius: 14px; padding: 4px 12px; cursor: pointer; font-size: 13px; }
 .stages button[aria-pressed="true"] { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); }
 .due { color: var(--sale); font-weight: 700; }
@@ -326,12 +340,13 @@ tbody tr:last-child td { border-bottom: 0; }
   <nav class="views hidden" id="views" aria-label="Views">
     <!-- order follows the deal: find it, talk to the seller, work it, put it under contract, sell it.
          Mobile shows the first four plus More (tab bars work best with 5 slots or fewer). -->
+    <button type="button" id="vToday" aria-pressed="false">Today</button>
     <button type="button" id="vLeads" aria-pressed="true">Leads</button>
-    <button type="button" id="vInbox" aria-pressed="false">Inbox <span class="ibBadge hidden" id="inboxBadge"></span></button>
     <button type="button" id="vPipe" aria-pressed="false">Pipeline</button>
-    <button type="button" id="vDeals" aria-pressed="false">Contracts</button>
+    <button type="button" id="vInbox" aria-pressed="false">Inbox <span class="ibBadge hidden" id="inboxBadge"></span></button>
+    <button type="button" id="vDeals" class="sec secStart" aria-pressed="false">Contracts</button>
     <button type="button" id="vBuy" class="sec" aria-pressed="false">Buyers</button>
-    <button type="button" id="vMkt" class="sec secStart" aria-pressed="false">Deals for sale</button>
+    <button type="button" id="vMkt" class="sec" aria-pressed="false">Deals for sale</button>
     <button type="button" id="vLend" class="sec" aria-pressed="false">Lenders</button>
     <button type="button" id="vCrew" class="sec" aria-pressed="false">Contractors</button>
     <button type="button" id="vSvc" class="sec" aria-pressed="false">Services</button>
@@ -447,6 +462,8 @@ tbody tr:last-child td { border-bottom: 0; }
   </main>
 </div>
 
+<section class="pipe hidden" id="today" aria-label="Today"></section>
+
 <section class="pipe hidden" id="pipe" aria-label="Pipeline">
   <div class="toolbar">
     <span class="count" id="pCount">Pipeline</span>
@@ -459,9 +476,10 @@ tbody tr:last-child td { border-bottom: 0; }
   <details class="panel hidden" id="pAdd"><summary style="cursor:pointer;font-weight:700">Add a property or bring a list</summary><div id="pAddForm" style="margin-top:8px"></div></details>
   <div class="panel hidden" id="dialPanel" style="margin-bottom:10px"></div>
   <div class="stages" id="pStages"></div>
+  <div class="panel hidden" id="pBulk" role="region" aria-label="Selected leads"></div>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Follow-up</th><th>Property</th><th>Owner</th><th>Stage</th><th>Signals</th><th>Auction</th><th class="num">Phones</th><th>Last note</th></tr></thead>
+      <thead><tr><th class="selcell"><input type="checkbox" id="pAll" aria-label="Select all shown leads"></th><th>Follow-up</th><th>Property</th><th>Owner</th><th>Stage</th><th>Signals</th><th>Auction</th><th class="num">Phones</th><th>Last note</th></tr></thead>
       <tbody id="pRows"></tbody>
     </table>
     <div class="empty hidden" id="pEmpty">Nothing here yet. Open a lead and choose Add to pipeline.</div>
@@ -591,7 +609,7 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const PRACTICE = (() => { try { return location.hash === "#practice" || location.hash === "#demo" || sessionStorage.getItem("bapPractice") === "1"; } catch (e) { return location.hash === "#practice" || location.hash === "#demo"; } })();
 const PRACTICE_READS = new Set(["lead_map", "lead_search", "lead_facets", "lead_detail", "lead_counties", "lead_kind_counts", "lead_models",
   "my_deal_models", "match_contacts", "deal_for_lead", "deal_for_listing", "contract_library", "contract_vault", "rehab_for_lead", "public_deal",
-  "pipeline_list", "pipeline_lead", "my_usage", "my_services", "my_deal_targets", "my_business", "match_my_buyers", "map_coverage",
+  "pipeline_list", "pipeline_flags", "today_overview", "pipeline_lead", "my_usage", "my_services", "my_deal_targets", "my_business", "match_my_buyers", "map_coverage",
   "list_states", "directory_top", "property_valuation", "geocode_address", "inbox_list", "inbox_thread", "inbox_unread"]);
 function practiceToast(text) {
   let t = document.getElementById("practiceToast");
@@ -881,6 +899,7 @@ async function showApp(user) {
   $("auth").classList.add("hidden"); $("app").classList.remove("hidden");
   $("signout").classList.remove("hidden"); $("practiceBtn").classList.toggle("hidden", PRACTICE); $("practiceBtn").onclick = enterPractice; $("who").textContent = user.email; $("views").classList.remove("hidden");
   await loadCounties(); await buildStaticFilters(); await loadSaved(); updateFacets(filters()); initMap(); bizNudge(); ibStartPolling();
+  if (!DEMO) setView("today");   // open on what to do now (the demo tour still starts on the map)
   sendAttr(user);
 }
 $("authSwap").onclick = () => {
@@ -1962,6 +1981,7 @@ const STAGES = { new: "New", researching: "Researching", contacted: "Contacted",
 const ACTIVE = ["new", "researching", "contacted", "negotiating", "under_contract", "marketing", "assigned"];
 let pStage = "active";
 function setView(v) {
+  $("today").classList.toggle("hidden", v !== "today"); $("vToday").setAttribute("aria-pressed", String(v === "today")); if (v === "today") { loadToday(); ibBadge(); }
   $("mkt").classList.toggle("hidden", v !== "mkt"); $("vMkt").setAttribute("aria-pressed", String(v === "mkt")); if (v === "mkt") loadMarket();
   $("app").classList.toggle("hidden", v !== "leads"); $("pipe").classList.toggle("hidden", v !== "pipe");
   $("deals").classList.toggle("hidden", v !== "deals"); $("svc").classList.toggle("hidden", v !== "svc");
@@ -1972,7 +1992,7 @@ function setView(v) {
   $("vLeads").setAttribute("aria-pressed", String(v === "leads")); $("vPipe").setAttribute("aria-pressed", String(v === "pipe"));
   $("vDeals").setAttribute("aria-pressed", String(v === "deals"));
   $("inbox").classList.toggle("hidden", v !== "inbox"); $("vInbox").setAttribute("aria-pressed", String(v === "inbox")); if (v === "inbox") { loadInbox(); ibBadge(); }
-  const secV = { buy: "vBuy", mkt: "vMkt", lend: "vLend", crew: "vCrew", svc: "vSvc" };
+  const secV = { deals: "vDeals", buy: "vBuy", mkt: "vMkt", lend: "vLend", crew: "vCrew", svc: "vSvc" };
   $("vMore").setAttribute("aria-pressed", String(v in secV));
   for (const b of document.querySelectorAll("#moreSheet button")) b.setAttribute("aria-current", String(b.dataset.for === secV[v]));
   if (!PRACTICE && v && v !== setView._last) { setView._last = v; sb.rpc("log_tab", { p_tab: v }).then(() => {}, () => {}); }  // real usage, to keep this order honest
@@ -2090,6 +2110,7 @@ $("vCrew").onclick = () => setView("crew");
 $("pAddBtn").onclick = () => { $("pAdd").classList.remove("hidden"); $("pAdd").open = true; addPropertyForm(); $("pAdd").scrollIntoView({ block: "start", behavior: "smooth" }); };
 $("dStatus").onchange = () => loadVault();
 $("vLeads").onclick = () => setView("leads");
+$("vToday").onclick = () => setView("today");
 $("vPipe").onclick = () => setView("pipe");
 $("pDue").onchange = () => loadPipeline();
 
@@ -2361,31 +2382,93 @@ $("natBtn").onclick = openNational;
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !sheet.classList.contains("hidden")) { close(); more.focus(); } });
 })();
 $("ibRefresh").onclick = () => { loadInbox(); ibBadge(); if (ibOpen) openThread(ibOpen); };
+// Pipeline: filters (Overdue, Auction passed), a checkbox on every row, and a bulk bar.
+// Rule: bulk actions only ever touch rows that are visible AND checked. Changing the filter or reloading clears the checks.
+let pSel = new Set(), pBoxes = new Map(), pShown = [], pFlags = new Map(), pFlagsOk = false, pCounts = { overdue: 0, auction: 0 };
+const isOverdue = (r) => !!r.next_action_at && new Date(r.next_action_at).getTime() < Date.now();
+const auctionPassed = (r) => !!(pFlags.get(r.lead_id) || {}).auction_passed;
 function stageButtons() {
   const box = $("pStages"); box.textContent = "";
-  const opts = [["active", "All active"], ...Object.entries(STAGES)];
+  const opts = [["active", "All active"], ["overdue", "Overdue" + (pCounts.overdue ? " (" + pCounts.overdue + ")" : "")], ...Object.entries(STAGES)];
+  if (pFlagsOk && (pCounts.auction || pStage === "auction")) opts.push(["auction", "Auction passed (" + pCounts.auction + ")"]);
   for (const [v, t] of opts) {
     const b = el("button", { type: "button", "aria-pressed": String(v === pStage), text: t });
     b.onclick = () => { pStage = v; loadPipeline(); }; box.append(b);
   }
 }
 const when = (ts) => ts ? new Date(ts).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+function updateBulk() {
+  const box = $("pBulk"), n = pSel.size;
+  box.classList.toggle("hidden", n === 0); box.textContent = "";
+  const all = $("pAll"); if (all) { all.checked = n > 0 && n === pShown.length; all.indeterminate = n > 0 && n < pShown.length; }
+  if (!n) return;
+  const sel = el("select", { "aria-label": "Move selected leads to a stage" }, el("option", { value: "", text: "Move to…" }),
+    ...Object.entries(STAGES).map(([v, t]) => el("option", { value: v, text: t })));
+  const move = el("button", { class: "small", type: "button", text: "Move" });
+  const call = el("button", { class: "small primary hidden", type: "button", text: "Call selected" });
+  const clear = el("button", { class: "link", type: "button", text: "Clear" });
+  const msg = el("span", { class: "sub", role: "status" });
+  isBapOwner().then((yes) => { if (yes) call.classList.remove("hidden"); });
+  move.onclick = async () => {
+    if (!sel.value) { msg.textContent = "Pick a stage first."; return; }
+    const ids = [...pSel], label = STAGES[sel.value];
+    if (!confirm("Move " + ids.length + " lead" + (ids.length === 1 ? "" : "s") + " to " + label + "? Each move is saved in the lead's history, and you can move them back.")) return;
+    move.disabled = true; let ok = 0, bad = 0;
+    for (const id of ids) {
+      msg.textContent = "Moving " + (ok + bad + 1) + " of " + ids.length + "…";
+      const r = await sb.rpc("update_lead", { p_lead: id, p_stage: sel.value });
+      if (r.error) bad++; else ok++;
+    }
+    pSel.clear(); await loadPipeline();
+    $("pCount").textContent = ok + " moved to " + label + (bad ? ", " + bad + " could not be moved" : "") + ".";
+  };
+  call.onclick = () => openListDialer({ leadIds: [...pSel] });
+  clear.onclick = () => { pSel.clear(); pBoxes.forEach((b) => { b.checked = false; }); updateBulk(); };
+  const selAll = el("button", { class: "link", type: "button", text: "Select all " + pShown.length });   // phones have no table header, so no select-all box
+  selAll.onclick = () => { for (const r of pShown) { pSel.add(r.lead_id); const b = pBoxes.get(r.lead_id); if (b) b.checked = true; } updateBulk(); };
+  box.append(el("div", { class: "row2", style: "align-items:center;gap:8px;flex-wrap:wrap" }, el("b", { text: n + " selected" }), ...(n < pShown.length ? [selAll] : []), sel, move, call, clear, msg));
+}
 async function loadPipeline() {
   stageButtons();
   $("pCount").textContent = "Loading…";
-  const stages = pStage === "active" ? ACTIVE : [pStage];
-  const { data, error } = await sb.rpc("pipeline_list", { p_stages: stages, p_due_only: $("pDue").checked });
+  pSel.clear(); pBoxes.clear(); updateBulk();
+  const inActive = pStage === "active" || pStage === "overdue" || pStage === "auction" || ACTIVE.includes(pStage);
+  // one load of every active stage serves the filters and the chip counts; Dead and Closed load on their own
+  const [lr, fr] = await Promise.all([
+    sb.rpc("pipeline_list", { p_stages: inActive ? ACTIVE : [pStage], p_due_only: $("pDue").checked }),
+    sb.rpc("pipeline_flags"),
+  ]);
   const tb = $("pRows"); tb.textContent = "";
-  if (error) { $("pCount").textContent = "Couldn't load the pipeline"; $("pEmpty").textContent = error.message; $("pEmpty").classList.remove("hidden"); return; }
-  $("pCount").textContent = data.length.toLocaleString("en-US") + (data.length === 1 ? " lead in pipeline" : " leads in pipeline");
-  $("pEmpty").textContent = "Nothing here yet. Open a lead and choose Add to pipeline.";
-  $("pEmpty").classList.toggle("hidden", data.length > 0);
+  if (lr.error) { $("pCount").textContent = "Couldn't load the pipeline"; $("pEmpty").textContent = lr.error.message; $("pEmpty").classList.remove("hidden"); return; }
+  const data = lr.data || [];
+  pFlags = new Map(); pFlagsOk = !fr.error && Array.isArray(fr.data);
+  if (pFlagsOk) for (const f of fr.data) pFlags.set(f.lead_id, f);
+  const hidden = (r) => !!(pFlags.get(r.lead_id) || {}).hide_auto;   // auction passed and nothing else about it is still live
+  const live = inActive ? data.filter((r) => !hidden(r)) : data;
+  pCounts = { overdue: live.filter(isOverdue).length, auction: data.filter(auctionPassed).length };
+  const rows = pStage === "overdue" ? live.filter(isOverdue)
+    : pStage === "auction" ? data.filter(auctionPassed)
+    : pStage === "active" ? live
+    : ACTIVE.includes(pStage) ? live.filter((r) => r.stage === pStage) : data;
+  pShown = rows;
+  stageButtons();
+  const hiddenN = pStage === "active" ? data.length - live.length : 0;
+  $("pCount").textContent = rows.length.toLocaleString("en-US") + (rows.length === 1 ? " lead" : " leads") +
+    (pStage === "overdue" ? " overdue" : pStage === "auction" ? " past their auction" : " in pipeline") + (hiddenN ? " · " + hiddenN + " hidden (auction passed)" : "");
+  $("pEmpty").textContent = pStage === "overdue" ? "Nothing overdue. You're caught up." : pStage === "auction" ? "No leads with a passed auction." : "Nothing here yet. Open a lead and choose Add to pipeline.";
+  $("pEmpty").classList.toggle("hidden", rows.length > 0);
   const now = Date.now();
-  for (const r of data) {
+  for (const r of rows) {
     const due = r.next_action_at && new Date(r.next_action_at).getTime() <= now;
     const chips = el("div", { class: "chips" });
     for (const k of r.kinds || []) chips.append(el("span", { class: "chip " + k, text: KINDS[k] || k }));
+    if (auctionPassed(r)) chips.append(el("span", { class: "chip", text: "Auction passed" }));
+    const cb = el("input", { type: "checkbox", "aria-label": "Select " + (r.address_line || "this lead") });
+    cb.onclick = (e) => e.stopPropagation();
+    cb.onchange = () => { if (cb.checked) pSel.add(r.lead_id); else pSel.delete(r.lead_id); updateBulk(); };
+    pBoxes.set(r.lead_id, cb);
     const tr = el("tr", { tabindex: "0" },
+      el("td", { class: "selcell" }, cb),
       el("td", {}, el("span", { class: due ? "due" : "", text: r.next_action_at ? (due ? "Due " : "") + when(r.next_action_at) : "None set" })),
       el("td", {}, el("div", { class: "addr", text: r.address_line || "Address unknown" }),
         el("div", { class: "sub", text: [[r.city, r.zip].filter(Boolean).join(" "), r.county + " County"].join(", ") })),
@@ -2396,10 +2479,15 @@ async function loadPipeline() {
       el("td", { class: "num", text: String(r.phones || 0) }),
       el("td", { class: "sub", text: (r.last_note || "").slice(0, 80) }));
     tr.onclick = () => openDetail(r.property_id);
-    tr.onkeydown = (e) => { if (e.key === "Enter") openDetail(r.property_id); };
+    tr.onkeydown = (e) => { if (e.key === "Enter" && e.target === tr) openDetail(r.property_id); };
     tb.append(tr);
   }
 }
+$("pAll").onchange = (e) => {
+  const on = e.target.checked;
+  for (const r of pShown) { if (on) pSel.add(r.lead_id); else pSel.delete(r.lead_id); const b = pBoxes.get(r.lead_id); if (b) b.checked = on; }
+  updateBulk();
+};
 const localInput = (ts) => { if (!ts) return ""; const d = new Date(ts); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
 async function renderPipePanel(propertyId, pp) {
   pp.textContent = "";
@@ -2565,7 +2653,8 @@ async function dialInvoke(body) {
   return r.data || { ok: false, reason: (r.error && r.error.message) || "Something went wrong." };
 }
 const DIAL_OUTCOMES = [["talked", "Talked"], ["callback", "Call back tomorrow"], ["not_interested", "Not interested"], ["wrong_number", "Wrong number"], ["dnc", "Asked not to be called"]];
-function openListDialer() {
+function openListDialer(opts) {
+  opts = opts || {};
   stopDialPoll();   // reopening builds a fresh panel; an old timer would keep updating the detached one
   const host = $("dialPanel"); host.classList.remove("hidden"); host.textContent = "";
   const body = el("div"), msg = el("p", { class: "sub", role: "status" });
@@ -2577,14 +2666,17 @@ function openListDialer() {
 
   const idleView = (last) => {
     body.textContent = ""; prevDialStatus = null;
-    const stages = pStage === "active" ? ACTIVE : [pStage];
-    const label = pStage === "active" ? "all your active stages" : (STAGES[pStage] || pStage);
+    const ids = opts.leadIds && opts.leadIds.length ? opts.leadIds : null;   // "Call selected": exactly these leads, never a whole stage
+    const stages = ["active", "overdue", "auction"].includes(pStage) ? ACTIVE : [pStage];
+    const dueOnly = $("pDue").checked || pStage === "overdue";
+    const label = ids ? "the " + ids.length + " lead" + (ids.length === 1 ? "" : "s") + " you checked"
+      : pStage === "active" ? "all your active stages" : pStage === "overdue" ? "your overdue follow-ups" : pStage === "auction" ? "leads with a passed auction" : (STAGES[pStage] || pStage);
     const start = el("button", { class: "primary", type: "button", text: "Start dialing" });
     const modeSel = el("select", { "aria-label": "Dial using" }, el("option", { value: "browser", text: "My computer's microphone and speakers (recommended)" }),
       el("option", { value: "phone", text: "My cell phone (stay on the line)" }));
     try { const m0 = localStorage.getItem("bapDialMode"); if (m0 === "phone" || m0 === "browser") modeSel.value = m0; } catch (e) { /* remembering is optional */ }
     modeSel.onchange = () => { try { localStorage.setItem("bapDialMode", modeSel.value); } catch (e) { /* optional */ } };
-    body.append(el("p", { class: "sub", text: "Dials the leads in " + label + ($("pDue").checked ? " that are due for follow-up" : "") +
+    body.append(el("p", { class: "sub", text: (ids ? "Dials " + label : "Dials the leads in " + label + (dueOnly ? " that are due for follow-up" : "")) +
       ", one at a time, up to 50 calls. Voicemails and no-answers are skipped on their own, and a lead is connected to you only when a person answers. " +
       "Numbers on the Do Not Call list, and calls outside 9am to 8pm Monday to Saturday in the seller's time zone, are skipped automatically." }),
       el("label", { style: "display:block;margin:6px 0" }, "Dial using ", modeSel));
@@ -2600,7 +2692,7 @@ function openListDialer() {
           await loadVoiceSdk();
         } catch (e) { start.disabled = false; say(e && e.name === "NotAllowedError" ? "The microphone is blocked. Allow it for this site (the lock icon by the address), then try again." : (e && e.message) || "Couldn't reach your microphone.", true); return; }
       }
-      const d = await dialInvoke({ action: "list_start", stages, due_only: $("pDue").checked, mode });
+      const d = await dialInvoke({ action: "list_start", stages, due_only: dueOnly, mode, ...(ids ? { lead_ids: ids } : {}) });
       start.disabled = false;
       if (d.needs_terms) { say(""); termsView(); return; }
       if (d.ok === false) { say(d.reason || "Couldn't start.", true); return; }
@@ -2695,6 +2787,104 @@ function openListDialer() {
   b.onclick = openListDialer;
   isBapOwner().then((yes) => { if (yes) b.classList.remove("hidden"); });
 })();
+
+/* ---------- Today: what to do right now ----------
+   Follow-ups that are due or overdue, call-backs, replies waiting, and the "Your first deal" checklist until it is done.
+   Everything here is a shortcut into screens that already exist. */
+const TODAY_STEPS = [["profile", "Set up your business profile", "svc"], ["lead", "Add a property to your pipeline", "leads"],
+  ["skiptrace", "Get the owner's phone numbers", "pipe"], ["analysis", "Run the deal numbers", "pipe"],
+  ["contact", "Contact an owner", "pipe"], ["contract", "Create a contract", "deals"], ["signed", "Get it signed", "deals"]];
+function dueText(ts) {
+  if (!ts) return "";
+  const d = new Date(ts), ms = Date.now() - d.getTime();
+  if (ms < 0) return "Due " + d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const days = Math.floor(ms / 86400000);
+  return days >= 1 ? "Overdue " + days + (days === 1 ? " day" : " days") : "Due now";
+}
+async function loadToday() {
+  const box = $("today"); box.textContent = "";
+  const body = el("div", { class: "todayBody" });
+  box.append(el("div", { class: "todayHead" }, el("h2", { text: "Today" }),
+    el("div", { class: "sub", text: new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }) })), body);
+  body.append(el("p", { class: "sub", text: "Loading…" }));
+  const [lr, fr, ov, unread, bz] = await Promise.all([
+    sb.rpc("pipeline_list", { p_stages: ACTIVE, p_due_only: false }), sb.rpc("pipeline_flags"), sb.rpc("today_overview"), sb.rpc("inbox_unread"), biz(),
+  ]);
+  body.textContent = "";
+  const flags = new Map(Array.isArray(fr.data) ? fr.data.map((f) => [f.lead_id, f]) : []);
+  const endOfToday = new Date(); endOfToday.setHours(23, 59, 59, 999);
+  const due = (lr.data || []).filter((r) => r.next_action_at && new Date(r.next_action_at) <= endOfToday && !(flags.get(r.lead_id) || {}).hide_auto);
+  const tasks = (ov.data && Array.isArray(ov.data.tasks)) ? ov.data.tasks : [];
+  const replies = Number(unread.data) || 0;
+
+  // 1) Your first deal: shown until every step is done (or you hide it on this device)
+  const stepsDone = Object.assign({ profile: !!(bz && bz.business_name) }, (ov.data && ov.data.steps) || {});
+  const nDone = TODAY_STEPS.filter(([k]) => stepsDone[k]).length;
+  let hideFirst = false; try { hideFirst = localStorage.getItem("bapHideFirstDeal") === "1"; } catch (e) { /* optional */ }
+  if (ov.data && ov.data.steps && nDone < TODAY_STEPS.length && !hideFirst) {
+    const next = TODAY_STEPS.find(([k]) => !stepsDone[k]);
+    const go = el("button", { class: "primary small", type: "button", text: "Do this now" }); go.onclick = () => setView(next[2]);
+    const hide = el("button", { class: "link", type: "button", text: "Hide" });
+    hide.onclick = () => { try { localStorage.setItem("bapHideFirstDeal", "1"); } catch (e) { /* optional */ } loadToday(); };
+    body.append(el("div", { class: "tCard" },
+      el("div", { class: "tHead" }, el("h3", { text: "Your first deal" }), el("span", { class: "sub", text: nDone + " of " + TODAY_STEPS.length + " steps" })),
+      el("div", { class: "tProg", role: "progressbar", "aria-valuemin": "0", "aria-valuemax": String(TODAY_STEPS.length), "aria-valuenow": String(nDone) }, el("i", { style: "width:" + Math.round(nDone / TODAY_STEPS.length * 100) + "%" })),
+      el("div", { class: "tHead" }, el("span", { text: "Next: " + next[1] }), el("span", { class: "row2" }, go, hide))));
+  }
+
+  // 2) Follow up today (due now or earlier today, overdue first)
+  if (due.length) {
+    const ids = due.filter((r) => (r.phones || 0) > 0).map((r) => r.lead_id);
+    const head = el("div", { class: "tHead" }, el("h3", { text: "Follow up today (" + due.length + ")" }));
+    const acts = el("span", { class: "row2" });
+    if (ids.length) { const call = el("button", { class: "small primary hidden", type: "button", text: "Call these" }); call.onclick = () => { setView("pipe"); openListDialer({ leadIds: ids }); }; acts.append(call); isBapOwner().then((yes) => { if (yes) call.classList.remove("hidden"); }); }
+    const all = el("button", { class: "link", type: "button", text: "See all in Pipeline" }); all.onclick = () => { pStage = due.some(isOverdue) ? "overdue" : "active"; setView("pipe"); };
+    acts.append(all); head.append(acts);
+    const card = el("div", { class: "tCard" }, head);
+    for (const r of due.slice(0, 8)) {
+      const chips = el("div", { class: "chips" });
+      for (const k of r.kinds || []) chips.append(el("span", { class: "chip " + k, text: KINDS[k] || k }));
+      const row = el("div", { class: "tRow", tabindex: "0", role: "button" },
+        el("div", {}, el("div", { class: "addr", text: r.address_line || "Address unknown" }),
+          el("div", { class: "sub", text: [[r.city, r.zip].filter(Boolean).join(" "), title(r.owner_name)].filter(Boolean).join(" · ") }), chips),
+        el("div", { class: isOverdue(r) ? "due" : "sub", text: dueText(r.next_action_at), style: "white-space:nowrap" }));
+      row.onclick = () => openDetail(r.property_id);
+      row.onkeydown = (e) => { if (e.key === "Enter") openDetail(r.property_id); };
+      card.append(row);
+    }
+    if (due.length > 8) card.append(el("p", { class: "sub", text: "and " + (due.length - 8) + " more in Pipeline." }));
+    body.append(card);
+  }
+
+  // 3) Call-backs that were scheduled for you
+  if (tasks.length) {
+    const card = el("div", { class: "tCard" }, el("div", { class: "tHead" }, el("h3", { text: "Call-backs (" + tasks.length + ")" })));
+    for (const t of tasks.slice(0, 8)) {
+      const row = el("div", { class: "tRow", tabindex: "0", role: "button" },
+        el("div", {}, el("div", { class: "addr", text: t.action || "Call back" }), el("div", { class: "sub", text: [t.address, t.city].filter(Boolean).join(", ") })),
+        el("div", { class: "sub", text: dueText(t.due_at), style: "white-space:nowrap" }));
+      row.onclick = () => { if (t.property_id) openDetail(t.property_id); };
+      row.onkeydown = (e) => { if (e.key === "Enter" && t.property_id) openDetail(t.property_id); };
+      card.append(row);
+    }
+    body.append(card);
+  }
+
+  // 4) Replies waiting
+  if (replies > 0) {
+    const open = el("button", { class: "primary small", type: "button", text: "Open inbox" }); open.onclick = () => setView("inbox");
+    body.append(el("div", { class: "tCard" }, el("div", { class: "tHead" },
+      el("h3", { text: replies + (replies === 1 ? " reply waiting" : " replies waiting") }), open)));
+  }
+
+  // 5) all caught up
+  if (!due.length && !tasks.length && !replies) {
+    const find = el("button", { class: "primary", type: "button", text: "Find leads" }); find.onclick = () => setView("leads");
+    const add = el("button", { class: "small", type: "button", text: "Add a property" }); add.onclick = () => { setView("pipe"); $("pAddBtn").click(); };
+    body.append(el("div", { class: "tCard" }, el("h3", { text: "You're all caught up" }),
+      el("p", { class: "sub", text: "Nothing is due and no one is waiting on you. A good time to find new leads." }), el("div", { class: "row2" }, find, add)));
+  }
+}
 
 /* ---------- permission to text (consent) + texting lock ---------- */
 const CONSENT_METHODS = { phone_call: "Said yes on a phone call", inbound_text: "They texted us first", inbound_call: "They called us first",
