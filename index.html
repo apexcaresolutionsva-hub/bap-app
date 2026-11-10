@@ -448,10 +448,12 @@ tbody tr:last-child td { border-bottom: 0; }
     <span class="count" id="pCount">Pipeline</span>
     <span class="spacer"></span>
     <button class="primary small" id="pAddBtn" type="button">Add property</button>
+    <button class="small hidden" id="pDialBtn" type="button">Call my list</button>
     <label class="sub"><input type="checkbox" id="pDue"> Due for follow-up only</label>
   </div>
   <div class="note hidden" id="bizNudge" style="margin-bottom:10px">Set up your business profile once so contracts, deal pages and emails fill in automatically. <button class="primary small" id="bizGo" type="button">Set it up</button></div>
   <details class="panel hidden" id="pAdd"><summary style="cursor:pointer;font-weight:700">Add a property or bring a list</summary><div id="pAddForm" style="margin-top:8px"></div></details>
+  <div class="panel hidden" id="dialPanel" style="margin-bottom:10px"></div>
   <div class="stages" id="pStages"></div>
   <div class="table-wrap">
     <table>
@@ -2530,6 +2532,118 @@ function callRow(ph) {
   callBtn.onclick = () => run("tap"); bapBtn.onclick = () => run("bap");
   box.append(callBtn, bapBtn, msg, termsBox); frag.append(box); return frag;
 }
+
+/* ---------- list dialer: "Call my list" (owner only for now) ----------
+   You answer your cell once and stay on the line. BAP dials one lead at a time, hangs up on voicemail, and connects a lead
+   only when a person answers. After each conversation you pick an outcome and it moves on. Nothing dials unless real
+   dialing is switched on server-side (CRM_DIAL_LIVE); until then this runs in practice mode. */
+let dialPoll = null;
+const stopDialPoll = () => { if (dialPoll) { clearInterval(dialPoll); dialPoll = null; } };
+const fmtP = (v) => { const d = String(v || "").replace(/\D/g, "").slice(-10); return d.length === 10 ? "(" + d.slice(0, 3) + ") " + d.slice(3, 6) + "-" + d.slice(6) : String(v || ""); };
+async function dialInvoke(body) {
+  const r = await sb.functions.invoke("crm-dial", { body });
+  return r.data || { ok: false, reason: (r.error && r.error.message) || "Something went wrong." };
+}
+const DIAL_OUTCOMES = [["talked", "Talked"], ["callback", "Call back tomorrow"], ["not_interested", "Not interested"], ["wrong_number", "Wrong number"], ["dnc", "Asked not to be called"]];
+function openListDialer() {
+  stopDialPoll();   // reopening builds a fresh panel; an old timer would keep updating the detached one
+  const host = $("dialPanel"); host.classList.remove("hidden"); host.textContent = "";
+  const body = el("div"), msg = el("p", { class: "sub", role: "status" });
+  const close = el("button", { class: "link", type: "button", text: "Close" });
+  close.onclick = () => { stopDialPoll(); host.classList.add("hidden"); };
+  host.append(el("div", { class: "row2", style: "justify-content:space-between;align-items:center" }, el("h3", { style: "margin:0", text: "Call my list" }), close), body, msg);
+  const say = (t, err) => { msg.className = err ? "msg err" : "sub"; msg.textContent = t || ""; };
+  const RUNNING = ["starting", "live", "wrapup", "paused"];
+
+  const idleView = (last) => {
+    body.textContent = "";
+    const stages = pStage === "active" ? ACTIVE : [pStage];
+    const label = pStage === "active" ? "all your active stages" : (STAGES[pStage] || pStage);
+    const start = el("button", { class: "primary", type: "button", text: "Start dialing" });
+    body.append(el("p", { class: "sub", text: "Dials the leads in " + label + ($("pDue").checked ? " that are due for follow-up" : "") +
+      ", one at a time, up to 50 calls. BAP rings your cell first: answer it and stay on the line. Voicemails are skipped, and a lead is connected to you only when a person answers. " +
+      "Numbers on the Do Not Call list, and calls outside 9am to 8pm Monday to Saturday in the seller's time zone, are skipped automatically." }));
+    if (last && last.note) body.append(el("p", { class: "sub", text: "Last session: " + last.note + " " + (last.dials || 0) + " calls placed." }));
+    body.append(start);
+    start.onclick = async () => {
+      start.disabled = true; say("Checking your list…");
+      const d = await dialInvoke({ action: "list_start", stages, due_only: $("pDue").checked });
+      start.disabled = false;
+      if (d.needs_terms) { say(""); termsView(); return; }
+      if (d.ok === false) { say(d.reason || "Couldn't start.", true); return; }
+      say(d.message || (d.practice ? "Practice mode: nothing was dialed." : "Calling your cell now."));
+      refresh();
+    };
+  };
+  const termsView = () => {
+    body.textContent = "";
+    const ok = el("input", { type: "checkbox" }), accept = el("button", { class: "primary small", type: "button", text: "Accept and continue" });
+    accept.onclick = async () => {
+      if (!ok.checked) { say("Check the box to continue."); return; }
+      const r = await sb.rpc("dial_terms_accept", { p_version: 1 });
+      if (r.error) { say(r.error.message, true); return; }
+      say(""); idleView(null);
+    };
+    body.append(el("b", { text: "Calling terms" }), el("p", { class: "sub", text: DIAL_TERMS }),
+      el("label", { style: "display:flex;gap:8px;align-items:flex-start" }, ok, el("span", { text: "I understand and accept responsibility for my calls." })), el("div", { class: "row2", style: "margin-top:8px" }, accept));
+  };
+  const control = async (op) => {
+    const d = await dialInvoke({ action: "list_control", op });
+    if (d.ok === false) say(d.reason || "Couldn't do that.", true); else say("");
+    refresh();
+  };
+  const runView = (s) => {
+    body.textContent = "";
+    const c = s.current, k = s.counts || {};
+    const status = s.status === "starting" ? "Ringing your cell. Answer it and stay on the line."
+      : s.status === "paused" ? "Paused. The call in progress will finish, then it waits."
+      : s.status === "wrapup" ? (c && c.ended ? "Pick an outcome to continue." : "Connected. Talk to them; the outcome buttons appear when they hang up.")
+      : c ? "Dialing " + fmtP(c.phone) + "…" : "Dialing the next number…";
+    body.append(el("p", { style: "margin:0 0 4px" }, el("b", { text: status })),
+      el("p", { class: "sub", style: "margin:0 0 8px", text: (s.dials || 0) + " of " + s.max_dials + " calls · " + (k.voicemail || 0) + " voicemail · " + (k.no_answer || 0) + " no answer · " +
+        (k.done || 0) + " reached · " + (k.queued || 0) + " left" }));
+    if (c) body.append(el("div", { class: "note", style: "margin:6px 0" }, el("b", { text: c.name && !/^New contact/.test(c.name) ? c.name : "Owner" }), " ", fmtP(c.phone),
+      el("div", { class: "sub", text: c.address || "" })));
+    if (s.status === "wrapup" && c && c.ended) {
+      const row = el("div", { class: "row2", style: "flex-wrap:wrap;gap:6px;margin:6px 0" });
+      for (const [v, t] of DIAL_OUTCOMES) {
+        const b = el("button", { class: v === "talked" ? "primary small" : "small", type: "button", text: t });
+        b.onclick = async () => {
+          row.querySelectorAll("button").forEach((x) => { x.disabled = true; });
+          const r = await sb.rpc("dial_wrapup", { p_queue_id: c.queue_id, p_outcome: v });
+          if (r.error || (r.data && r.data.ok === false)) { say((r.data && r.data.reason) || (r.error && r.error.message) || "Couldn't save.", true); refresh(); return; }
+          control("resume");
+        };
+        row.append(b);
+      }
+      body.append(row);
+    }
+    const ctl = el("div", { class: "row2", style: "gap:6px;margin-top:6px" });
+    if (s.status === "live") { const p = el("button", { class: "small", type: "button", text: "Pause" }); p.onclick = () => control("pause"); ctl.append(p); }
+    if (s.status === "paused") { const r = el("button", { class: "small primary", type: "button", text: "Resume" }); r.onclick = () => control("resume"); ctl.append(r); }
+    const st = el("button", { class: "small", type: "button", text: "Stop" }); st.onclick = () => { if (confirm("Stop dialing and hang up?")) control("stop"); }; ctl.append(st);
+    body.append(ctl);
+    if ((s.recent || []).length) body.append(el("ul", { class: "hist", style: "margin-top:8px" }, ...s.recent.map((x) =>
+      el("li", {}, [x.name && !/^New contact/.test(x.name) ? x.name : fmtP(x.phone), ({ voicemail: "voicemail", no_answer: "no answer", failed: "failed", blocked: "skipped: " + (x.reason || ""), skipped: "skipped",
+        done: ({ talked: "talked", callback: "call back", not_interested: "not interested", wrong_number: "wrong number", dnc: "do not call" })[x.outcome] || "done" })[x.status] || x.status].join(" · ")))));
+  };
+  async function refresh() {
+    const { data: s } = await sb.rpc("dial_session_state");
+    if (s && RUNNING.includes(s.status)) {
+      runView(s);
+      if (!dialPoll) dialPoll = setInterval(refresh, 3000);
+    } else {
+      stopDialPoll();
+      if (!body.querySelector("button.primary") || (s && s.status)) idleView(s && s.status ? s : null);
+    }
+  }
+  refresh();
+}
+(function wireListDialer() {
+  const b = $("pDialBtn"); if (!b) return;
+  b.onclick = openListDialer;
+  isBapOwner().then((yes) => { if (yes) b.classList.remove("hidden"); });
+})();
 
 /* ---------- permission to text (consent) + texting lock ---------- */
 const CONSENT_METHODS = { phone_call: "Said yes on a phone call", inbound_text: "They texted us first", inbound_call: "They called us first",
