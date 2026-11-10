@@ -2465,6 +2465,7 @@ async function renderPipePanel(propertyId, pp) {
     const row = el("div", { class: "ctr" }, el("b", { text: fmtPhone(ph.value) }), " ",
       el("span", { class: "sub", text: [ph.name + (ph.owner ? " (owner)" : ""), ph.line_type].filter(Boolean).join(", ") }), " ",
       ...flags.map((f) => el("span", { class: "badge warn", text: f })));
+    row.append(callRow(ph));
     if (textingOn) row.append(textPermissionRow(L.id, ph, () => renderPipePanel(propertyId, pp)));
     pp.append(row);
   }
@@ -2484,6 +2485,51 @@ async function renderPipePanel(propertyId, pp) {
   const dp = el("div", { class: "panel", id: "dealPanel" }); pp.after(dp); renderDealPanel(L.id, propertyId, dp, pp);
 }
 
+
+/* ---------- calling: rules check + one-time terms, then tap-to-call (everyone) or a BAP-routed call (owner only for now) ---------- */
+const DIAL_TERMS = "BAP gives you tools to organize and place calls. You are responsible for following the law when you call, including the Telephone Consumer Protection Act (TCPA), " +
+  "the National and state Do Not Call lists, state telemarketing and calling-hour rules, and any recording or consent laws. " +
+  "BAP checks the Do Not Call flags it has and blocks calls outside 9am to 8pm, Monday to Saturday, in the seller's time zone, but it cannot verify permission and does not give legal advice. " +
+  "Never call anyone who asks you to stop. BAP is not responsible for the calls you make.";
+let bapOwnerP = null;
+const isBapOwner = () => (bapOwnerP = bapOwnerP || sb.rpc("is_bap_owner").then((r) => r.data === true).catch(() => false));
+function callRow(ph) {
+  const frag = document.createDocumentFragment();
+  if (!ph.id || ph.on_dnc || ph.litigator || ph.deceased || ph.opted_out) return frag;
+  const box = el("div", { class: "row2", style: "width:100%;margin-top:6px;flex-wrap:wrap;gap:8px;align-items:center" });
+  const msg = el("span", { class: "sub", role: "status" });
+  const termsBox = el("div", { style: "width:100%" });
+  const callBtn = el("button", { class: "small primary", type: "button", text: "Call" });
+  const bapBtn = el("button", { class: "small", type: "button", text: "Call via BAP number", style: "display:none" });
+  isBapOwner().then((yes) => { if (yes) bapBtn.style.display = ""; });
+  const showTerms = (again) => {
+    termsBox.textContent = "";
+    const ok = el("input", { type: "checkbox" });
+    const accept = el("button", { class: "primary small", type: "button", text: "Accept and continue" });
+    accept.onclick = async () => {
+      if (!ok.checked) { msg.className = "sub"; msg.textContent = "Check the box to continue."; return; }
+      accept.disabled = true;
+      const r = await sb.rpc("dial_terms_accept", { p_version: 1 });
+      if (r.error) { msg.className = "msg err"; msg.textContent = r.error.message; accept.disabled = false; return; }
+      termsBox.textContent = ""; again();
+    };
+    termsBox.append(el("div", { class: "panel", style: "margin-top:6px;padding:10px" }, el("b", { text: "Calling terms" }), el("p", { class: "sub", text: DIAL_TERMS }),
+      el("label", { style: "display:flex;gap:8px;align-items:flex-start" }, ok, el("span", { text: "I understand and accept responsibility for my calls." })), el("div", { class: "row2", style: "margin-top:8px" }, accept)));
+  };
+  const run = async (via) => {
+    callBtn.disabled = bapBtn.disabled = true; msg.className = "sub"; msg.textContent = "Checking the rules…";
+    let d = null;
+    if (via === "bap") { const r = await sb.functions.invoke("crm-dial", { body: { point_id: ph.id } }); d = r.data || { ok: false, reason: (r.error && r.error.message) || "Couldn't start the call." }; }
+    else { const r = await sb.rpc("dial_check", { p_point: ph.id }); d = r.data || { ok: false, reason: (r.error && r.error.message) || "Couldn't check the rules." }; }
+    callBtn.disabled = bapBtn.disabled = false;
+    if (d.needs_terms) { msg.textContent = ""; showTerms(() => run(via)); return; }
+    if (d.ok === false) { msg.className = "msg err"; msg.textContent = d.reason || "This number can't be called right now."; return; }
+    if (via === "bap") { msg.className = "msg"; msg.textContent = d.message || (d.practice ? "Practice mode: nothing was dialed." : "Calling your cell now."); return; }
+    msg.textContent = ""; openExternal("tel:" + String(ph.value).replace(/[^\d+]/g, ""));
+  };
+  callBtn.onclick = () => run("tap"); bapBtn.onclick = () => run("bap");
+  box.append(callBtn, bapBtn, msg, termsBox); frag.append(box); return frag;
+}
 
 /* ---------- permission to text (consent) + texting lock ---------- */
 const CONSENT_METHODS = { phone_call: "Said yes on a phone call", inbound_text: "They texted us first", inbound_call: "They called us first",
