@@ -2677,7 +2677,7 @@ function openListDialer() {
     const { data: s } = await sb.rpc("dial_session_state");
     if (s && RUNNING.includes(s.status)) {
       runView(s);
-      if (!dialPoll) dialPoll = setInterval(refresh, 2000);
+      if (!dialPoll) dialPoll = setInterval(refresh, 1000);
     } else {
       stopDialPoll();
       if (s && s.status) releaseBrowserLine();   // the server says the session is over (finished, stopped, practice): never leave the microphone open. A blank answer (network hiccup) must not hang up a live call.
