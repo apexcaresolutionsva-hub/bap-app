@@ -2503,7 +2503,7 @@ function callRow(ph) {
   const termsBox = el("div", { style: "width:100%" });
   const callBtn = el("button", { class: "small primary", type: "button", text: "Call" });
   const bapBtn = el("button", { class: "small", type: "button", text: "Call via BAP number", style: "display:none" });
-  isBapOwner().then((yes) => { if (yes) bapBtn.style.display = ""; });
+  // "Call via BAP number" stays hidden: the browser phone in "Call my list" replaces it (it rang your cell but never reached the seller)
   const showTerms = (again) => {
     termsBox.textContent = "";
     const ok = el("input", { type: "checkbox" });
@@ -2539,6 +2539,16 @@ function callRow(ph) {
    dialing is switched on server-side (CRM_DIAL_LIVE); until then this runs in practice mode. */
 let dialPoll = null;
 const stopDialPoll = () => { if (dialPoll) { clearInterval(dialPoll); dialPoll = null; } };
+// browser phone: Twilio's Voice SDK turns this tab into your line (microphone + speakers), so there is no phone call to hold open
+let bapDevice = null, bapCall = null, prevDialStatus = null, voiceSdkP = null;
+const loadVoiceSdk = () => (voiceSdkP = voiceSdkP || new Promise((res, rej) => {
+  if (window.Twilio && window.Twilio.Device) return res();
+  const sc = document.createElement("script"); sc.src = "https://cdn.jsdelivr.net/npm/@twilio/voice-sdk@2.12.0/dist/twilio.min.js";
+  sc.onload = () => res(); sc.onerror = () => { voiceSdkP = null; rej(new Error("Couldn't load the browser phone. Check your connection and try again.")); };
+  document.head.append(sc);
+}));
+const dialChime = () => { try { const a = new (window.AudioContext || window.webkitAudioContext)(), o = a.createOscillator(), g = a.createGain();
+  o.frequency.value = 880; g.gain.value = 0.15; o.connect(g); g.connect(a.destination); o.start(); o.stop(a.currentTime + 0.25); } catch (e) { /* no sound is fine */ } };
 const fmtP = (v) => { const d = String(v || "").replace(/\D/g, "").slice(-10); return d.length === 10 ? "(" + d.slice(0, 3) + ") " + d.slice(3, 6) + "-" + d.slice(6) : String(v || ""); };
 async function dialInvoke(body) {
   const r = await sb.functions.invoke("crm-dial", { body });
@@ -2556,24 +2566,50 @@ function openListDialer() {
   const RUNNING = ["starting", "live", "wrapup", "paused"];
 
   const idleView = (last) => {
-    body.textContent = "";
+    body.textContent = ""; prevDialStatus = null;
     const stages = pStage === "active" ? ACTIVE : [pStage];
     const label = pStage === "active" ? "all your active stages" : (STAGES[pStage] || pStage);
     const start = el("button", { class: "primary", type: "button", text: "Start dialing" });
+    const modeSel = el("select", { "aria-label": "Dial using" }, el("option", { value: "browser", text: "My computer's microphone and speakers (recommended)" }),
+      el("option", { value: "phone", text: "My cell phone (stay on the line)" }));
+    try { const m0 = localStorage.getItem("bapDialMode"); if (m0 === "phone" || m0 === "browser") modeSel.value = m0; } catch (e) { /* remembering is optional */ }
+    modeSel.onchange = () => { try { localStorage.setItem("bapDialMode", modeSel.value); } catch (e) { /* optional */ } };
     body.append(el("p", { class: "sub", text: "Dials the leads in " + label + ($("pDue").checked ? " that are due for follow-up" : "") +
-      ", one at a time, up to 50 calls. BAP rings your cell first: answer it and stay on the line. Voicemails are skipped, and a lead is connected to you only when a person answers. " +
-      "Numbers on the Do Not Call list, and calls outside 9am to 8pm Monday to Saturday in the seller's time zone, are skipped automatically." }));
+      ", one at a time, up to 50 calls. Voicemails and no-answers are skipped on their own, and a lead is connected to you only when a person answers. " +
+      "Numbers on the Do Not Call list, and calls outside 9am to 8pm Monday to Saturday in the seller's time zone, are skipped automatically." }),
+      el("label", { style: "display:block;margin:6px 0" }, "Dial using ", modeSel));
     if (last && last.note) body.append(el("p", { class: "sub", text: "Last session: " + last.note + " " + (last.dials || 0) + " calls placed." }));
     body.append(start);
     start.onclick = async () => {
+      const mode = modeSel.value;
       start.disabled = true; say("Checking your list…");
-      const d = await dialInvoke({ action: "list_start", stages, due_only: $("pDue").checked });
+      if (mode === "browser") {   // microphone and phone library first, so a failure here never leaves a half-started session
+        try {
+          say("Allow your microphone when the browser asks…");
+          const ms = await navigator.mediaDevices.getUserMedia({ audio: true }); ms.getTracks().forEach((t) => t.stop());
+          await loadVoiceSdk();
+        } catch (e) { start.disabled = false; say(e && e.name === "NotAllowedError" ? "The microphone is blocked. Allow it for this site (the lock icon by the address), then try again." : (e && e.message) || "Couldn't reach your microphone.", true); return; }
+      }
+      const d = await dialInvoke({ action: "list_start", stages, due_only: $("pDue").checked, mode });
       start.disabled = false;
       if (d.needs_terms) { say(""); termsView(); return; }
       if (d.ok === false) { say(d.reason || "Couldn't start.", true); return; }
-      say(d.message || (d.practice ? "Practice mode: nothing was dialed." : "Calling your cell now."));
+      say(d.message || (d.practice ? "Practice mode: nothing was dialed." : mode === "browser" ? "Connecting your computer's audio…" : "Calling your cell now."));
+      if (mode === "browser" && !d.practice && d.session_id) await openBrowserLine(d.session_id);
       refresh();
     };
+  };
+  // open the call from this tab; the server puts it in the conference and starts dialing
+  const openBrowserLine = async (sessionId) => {
+    const t = await dialInvoke({ action: "browser_token" });
+    if (!t.ok || !t.token) { say(t.reason || "Couldn't connect your computer's audio.", true); await dialInvoke({ action: "list_control", op: "stop" }); return; }
+    try {
+      if (bapDevice) { try { bapDevice.destroy(); } catch (e) { /* old device */ } }
+      bapDevice = new window.Twilio.Device(t.token, { codecPreferences: ["opus", "pcmu"], closeProtection: true });
+      bapDevice.on("error", (e) => say("Audio problem: " + ((e && e.message) || e), true));
+      bapCall = await bapDevice.connect({ params: { s: sessionId } });
+      bapCall.on("disconnect", () => { bapCall = null; refresh(); });
+    } catch (e) { say("Couldn't open your computer's audio: " + ((e && e.message) || e), true); await dialInvoke({ action: "list_control", op: "stop" }); }
   };
   const termsView = () => {
     body.textContent = "";
@@ -2590,12 +2626,15 @@ function openListDialer() {
   const control = async (op) => {
     const d = await dialInvoke({ action: "list_control", op });
     if (d.ok === false) say(d.reason || "Couldn't do that.", true); else say("");
+    if (op === "stop" && bapDevice) { try { bapDevice.disconnectAll(); } catch (e) { /* already closed */ } }
     refresh();
   };
   const runView = (s) => {
     body.textContent = "";
     const c = s.current, k = s.counts || {};
-    const status = s.status === "starting" ? "Ringing your cell. Answer it and stay on the line."
+    if (s.status === "wrapup" && prevDialStatus !== "wrapup") dialChime();   // a person answered
+    prevDialStatus = s.status;
+    const status = s.status === "starting" ? (s.mode === "browser" ? "Connecting your computer's audio…" : "Ringing your cell. Answer it and stay on the line.")
       : s.status === "paused" ? "Paused. The call in progress will finish, then it waits."
       : s.status === "wrapup" ? (c && c.ended ? "Pick an outcome to continue." : "Connected. Talk to them; the outcome buttons appear when they hang up.")
       : c ? "Dialing " + fmtP(c.phone) + "…" : "Dialing the next number…";
@@ -2621,6 +2660,7 @@ function openListDialer() {
     const ctl = el("div", { class: "row2", style: "gap:6px;margin-top:6px" });
     if (s.status === "live") { const p = el("button", { class: "small", type: "button", text: "Pause" }); p.onclick = () => control("pause"); ctl.append(p); }
     if (s.status === "paused") { const r = el("button", { class: "small primary", type: "button", text: "Resume" }); r.onclick = () => control("resume"); ctl.append(r); }
+    if (s.mode === "browser" && bapCall) { const m = el("button", { class: "small", type: "button", text: bapCall.isMuted() ? "Unmute" : "Mute" }); m.onclick = () => { bapCall.mute(!bapCall.isMuted()); m.textContent = bapCall.isMuted() ? "Unmute" : "Mute"; }; ctl.append(m); }
     const st = el("button", { class: "small", type: "button", text: "Stop" }); st.onclick = () => { if (confirm("Stop dialing and hang up?")) control("stop"); }; ctl.append(st);
     body.append(ctl);
     if ((s.recent || []).length) body.append(el("ul", { class: "hist", style: "margin-top:8px" }, ...s.recent.map((x) =>
@@ -2631,7 +2671,7 @@ function openListDialer() {
     const { data: s } = await sb.rpc("dial_session_state");
     if (s && RUNNING.includes(s.status)) {
       runView(s);
-      if (!dialPoll) dialPoll = setInterval(refresh, 3000);
+      if (!dialPoll) dialPoll = setInterval(refresh, 2000);
     } else {
       stopDialPoll();
       if (!body.querySelector("button.primary") || (s && s.status)) idleView(s && s.status ? s : null);
