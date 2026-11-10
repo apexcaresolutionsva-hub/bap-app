@@ -7,7 +7,8 @@
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<meta name="theme-color" content="#1d3557">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1c1c1e" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -21,43 +22,46 @@
 <style>
 :root {
   color-scheme: light;
-  --bg: #ffffff; --panel: #f5f7fa; --line: #dde3ea; --ink: #16202b; --muted: #5b6876;
-  --brand: #1d3557; --brand-ink: #ffffff; --focus: #2f6fdb;
-  --sale: #b42318; --sale-bg: #fdecea; --tax: #9a5b00; --tax-bg: #fff4dd;
-  --code: #3b4a5c; --code-bg: #eaeef3; --ok: #1f7a4d;
-  --radius: 6px;
+  --bg: #ffffff; --panel: #f5f5f7; --line: #e5e5ea; --ink: #1d1d1f; --muted: #6e6e73;
+  --brand: #0a66d9; --brand-ink: #ffffff; --focus: #0a66d9; --tint: #e8f1fd;
+  --bar: #ffffff; --bar-ink: #1d1d1f;
+  --sale: #b42318; --sale-bg: #fdecea; --tax: #8a5300; --tax-bg: #fff4dd;
+  --code: #48484c; --code-bg: #ececef; --ok: #1f7a4d;
+  --radius: 12px;
   box-sizing: border-box;
   padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --bg: #0f1722; --panel: #16212f; --line: #283646; --ink: #e6ecf2; --muted: #9aa8b7;
-    --brand: #8fb3e6; --brand-ink: #0f1722; --focus: #8fb3e6;
-    --sale: #ff8a7a; --sale-bg: #3a1b18; --tax: #f2b955; --tax-bg: #33270f;
-    --code: #c3cfdc; --code-bg: #223042; --ok: #6fd3a0;
+    --bg: #000000; --panel: #1c1c1e; --line: #2c2c2e; --ink: #f5f5f7; --muted: #98989d;
+    --brand: #4da3ff; --brand-ink: #00152e; --focus: #4da3ff; --tint: #12263f;
+    --bar: #1c1c1e; --bar-ink: #f5f5f7;
+    --sale: #ff9b8f; --sale-bg: #40201d; --tax: #f2c36b; --tax-bg: #3a2c0b;
+    --code: #d1d1d6; --code-bg: #2c2c2e; --ok: #6fd3a0;
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0f1722; --panel: #16212f; --line: #283646; --ink: #e6ecf2; --muted: #9aa8b7;
-  --brand: #8fb3e6; --brand-ink: #0f1722; --focus: #8fb3e6;
-  --sale: #ff8a7a; --sale-bg: #3a1b18; --tax: #f2b955; --tax-bg: #33270f;
-  --code: #c3cfdc; --code-bg: #223042; --ok: #6fd3a0;
+  --bg: #000000; --panel: #1c1c1e; --line: #2c2c2e; --ink: #f5f5f7; --muted: #98989d;
+  --brand: #4da3ff; --brand-ink: #00152e; --focus: #4da3ff; --tint: #12263f;
+  --bar: #1c1c1e; --bar-ink: #f5f5f7;
+  --sale: #ff9b8f; --sale-bg: #40201d; --tax: #f2c36b; --tax-bg: #3a2c0b;
+  --code: #d1d1d6; --code-bg: #2c2c2e; --ok: #6fd3a0;
 }
 *, *::before, *::after { box-sizing: inherit; }
 html { height: 100%; scroll-padding-top: env(safe-area-inset-top, 0px); }
 body { margin: 0; min-height: 100%; background: var(--bg); color: var(--ink);
-  font: 15px/1.5 "Public Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Public Sans", sans-serif;
   font-variant-numeric: tabular-nums; }
-body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--brand); }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bar); }
 button, input, select { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .hidden { display: none !important; }
 
 /* top bar */
 header.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; display: flex; align-items: center; gap: 16px;
-  padding: 10px 20px; background: var(--brand); color: var(--brand-ink); }
+  padding: 10px 20px; background: var(--bar); color: var(--bar-ink); border-bottom: 1px solid var(--line); }
 .mark { font-weight: 700; font-size: 18px; letter-spacing: .02em; }
 .bar .spacer { flex: 1; }
 .bar button { background: transparent; border: 1px solid currentColor; color: inherit; border-radius: var(--radius);
@@ -65,7 +69,7 @@ header.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; d
 .bar .who { opacity: .85; font-size: 14px; }
 .views { display: flex; gap: 4px; }
 .bar .views button { border-color: transparent; opacity: .8; }
-.bar .views button[aria-pressed="true"] { border-color: currentColor; opacity: 1; font-weight: 600; }
+.bar .views button[aria-pressed="true"] { border-color: transparent; background: var(--tint); color: var(--brand); opacity: 1; font-weight: 600; }
 .bar .views .secStart { margin-left: 10px; position: relative; }
 .bar .views .secStart::before { content: ""; position: absolute; left: -8px; top: 20%; bottom: 20%; border-left: 1px solid currentColor; opacity: .35; }
 .bar .views .moreBtn, .moreSheet { display: none; }
@@ -270,10 +274,10 @@ tbody tr:last-child td { border-bottom: 0; }
   body.signed-in { padding-bottom: calc(66px + env(safe-area-inset-bottom, 0px)); }
   header.bar { gap: 10px; }
   .bar .views { position: fixed; left: 0; right: 0; bottom: 0; z-index: 12; display: flex; overflow-x: auto; scrollbar-width: none;
-    gap: 4px; background: var(--brand); padding: 6px 6px calc(env(safe-area-inset-bottom, 0px) + 6px);
-    border-top: 1px solid rgba(255, 255, 255, .18); box-shadow: 0 -4px 14px rgba(10, 20, 35, .15); }
+    gap: 4px; background: var(--bar); padding: 6px 6px calc(env(safe-area-inset-bottom, 0px) + 6px);
+    border-top: 1px solid var(--line); box-shadow: 0 -4px 14px rgba(0, 0, 0, .06); }
   .bar .views button { flex: 1 0 64px; border: 0; border-radius: 8px; padding: 9px 4px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .bar .views button[aria-pressed="true"] { background: rgba(255, 255, 255, .18); }
+  .bar .views button[aria-pressed="true"] { background: var(--tint); color: var(--brand); }
   .bar .views .sec { display: none; }
   .bar .views .moreBtn { display: block; }
   .moreSheet:not(.hidden) { display: grid; position: fixed; right: 8px; bottom: calc(70px + env(safe-area-inset-bottom, 0px)); z-index: 13;
@@ -793,7 +797,7 @@ if ("serviceWorker" in navigator) window.addEventListener("load", () => navigato
       "border:1px solid var(--line,#ccd);border-radius:14px;box-shadow:0 8px 28px rgba(10,20,35,.25);padding:12px 14px;display:flex;gap:12px;align-items:center}" +
       "#installBar img{width:40px;height:40px;border-radius:9px;flex:none}#installBar .t{flex:1;font-size:14px;line-height:1.35}#installBar b{display:block;font-size:15px}" +
       "#installBar .acts{display:flex;flex-direction:column;gap:4px}#installBar button{font:inherit;font-size:14px;border-radius:8px;padding:7px 12px;cursor:pointer;border:1px solid transparent}" +
-      "#installBar .go{background:#1d3557;color:#fff}#installBar .no{background:transparent;color:inherit;border-color:var(--line,#ccd)}" +
+      "#installBar .go{background:#0a66d9;color:#fff}#installBar .no{background:transparent;color:inherit;border-color:var(--line,#ccd)}" +
       "@media (max-width:860px){body.signed-in #installBar{bottom:calc(76px + env(safe-area-inset-bottom,0px))}}";
     document.head.append(css);
     const bar = document.createElement("div");
@@ -1630,7 +1634,7 @@ async function showPointCard(lat, lng) {
   const tail = [n.street, n.city, [n.state, n.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ");
   leadMap.flyTo({ center: [lng, lat], zoom: Math.max(leadMap.getZoom(), 17) });
   if (d4dMarker) d4dMarker.remove();
-  d4dMarker = new maplibregl.Marker({ color: "#1d3557" }).setLngLat([lng, lat]).addTo(leadMap);
+  d4dMarker = new maplibregl.Marker({ color: "#0a66d9" }).setLngLat([lng, lat]).addTo(leadMap);
   const box = el("div", { class: "mapcard", style: "max-width:270px" });
   box.append(el("b", { text: tail ? "Near " + tail : "This spot" }));
   const photoBox = el("div"); box.append(photoBox); housePhoto(photoBox, { lat, lng, address: tail });
@@ -1687,7 +1691,7 @@ async function showAddressCard(q) {
   if (!a) { $("mapCount").textContent = "Couldn't find that address. Try adding the city and state."; return; }
   leadMap.flyTo({ center: [a.lng, a.lat], zoom: 17 });
   if (d4dMarker) d4dMarker.remove();
-  d4dMarker = new maplibregl.Marker({ color: "#1d3557" }).setLngLat([a.lng, a.lat]).addTo(leadMap);
+  d4dMarker = new maplibregl.Marker({ color: "#0a66d9" }).setLngLat([a.lng, a.lat]).addTo(leadMap);
   // is it already a BAP lead? look in a tiny box around the point
   const d = 0.0007;
   const { data } = await sb.rpc("lead_map", { p_west: a.lng - d, p_south: a.lat - d, p_east: a.lng + d, p_north: a.lat + d, p_zoom: 18, p_max_pins: 5 });
