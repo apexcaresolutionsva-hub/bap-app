@@ -2209,7 +2209,22 @@ async function renderAccount() {
   out.onclick = () => $("signout").click();
   const grid = el("div", { class: "row2", style: "flex-wrap:wrap;gap:8px" }); grid.append(p1, p2, save);
   box.append(el("div", { class: "sub", style: "margin:0 0 4px", text: "Change password" }), grid, msg, el("div", { style: "margin-top:10px" }, out));
+  alertsToggle(box, user.id);
   loadBilling();
+}
+// Daily email when a lead in your pipeline gets a new distress signal. Shown only for accounts BAP has switched alerts on for.
+async function alertsToggle(box, uid) {
+  const { data: oa } = await sb.from("org_alerts").select("enabled").eq("enabled", true).limit(1);
+  if (!oa || !oa.length) return;
+  const { data: pref } = await sb.from("alert_prefs").select("distress_daily").eq("user_id", uid).maybeSingle();
+  const on = el("input", { type: "checkbox", id: "alertDaily" }); on.checked = !pref || pref.distress_daily !== false;
+  const note = el("span", { class: "sub", role: "status" });
+  on.onchange = async () => {
+    const { error } = await sb.from("alert_prefs").upsert({ user_id: uid, distress_daily: on.checked, updated_at: new Date().toISOString() });
+    note.textContent = error ? "Couldn't save. Try again." : on.checked ? "Alerts on." : "Alerts off.";
+  };
+  box.append(el("div", { style: "margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap" }, on,
+    el("label", { for: "alertDaily", text: "Email me once a day when a lead in my pipeline gets a new distress signal" }), note));
 }
 $("vLend").onclick = () => setView("lend");
 $("vBuy").onclick = () => setView("buy");
