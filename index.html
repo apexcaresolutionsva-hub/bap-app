@@ -350,6 +350,7 @@ tbody tr:last-child td { border-bottom: 0; }
     <button type="button" id="vLend" class="sec" aria-pressed="false">Lenders</button>
     <button type="button" id="vCrew" class="sec" aria-pressed="false">Contractors</button>
     <button type="button" id="vSvc" class="sec" aria-pressed="false">Services</button>
+    <button type="button" id="vAcct" class="sec" aria-pressed="false">Account</button>
     <button type="button" id="vMore" class="moreBtn" aria-pressed="false" aria-haspopup="menu" aria-expanded="false">More</button>
   </nav>
   <span class="spacer"></span>
@@ -367,6 +368,7 @@ tbody tr:last-child td { border-bottom: 0; }
     <button class="primary" id="authBtn" type="submit">Sign in</button>
   </form>
   <p class="msg" id="authMsg" role="status"></p>
+  <p class="note"><button class="link" id="authForgot" type="button">Forgot your password?</button></p>
   <p class="note"><button class="link" id="authSwap" type="button">Create an account instead</button></p>
   <p class="note" style="font-size:.85rem">By creating an account or signing in, you confirm you are 18 or older and agree to BAP's <a href="/terms/" target="_blank" rel="noopener">Terms of Service</a> and <a href="/privacy/" target="_blank" rel="noopener">Privacy Policy</a>.</p>
 </section>
@@ -573,10 +575,22 @@ tbody tr:last-child td { border-bottom: 0; }
 </section>
 <section class="hidden" id="dealPublic" style="max-width:760px;margin:24px auto;padding:0 16px" aria-label="Deal"></section>
 
+<section class="pipe hidden" id="acct" aria-label="Account">
+  <div class="toolbar"><span class="count">Account</span><span class="spacer"></span></div>
+  <div class="panel" id="acctSign" style="margin-bottom:12px"></div>
+  <div class="panel" id="billPanel" style="margin-bottom:12px"></div>
+  <div class="panel" id="acctHelp" style="margin-bottom:12px">
+    <h3 style="margin:0 0 6px">Help &amp; legal</h3>
+    <p class="sub" style="margin:0 0 6px">Questions about your login, plan or a charge? Call or text BAP at <a href="tel:+14692241122">(469) 224-1122</a>.</p>
+    <p class="sub" style="margin:0"><a href="/terms/" target="_blank" rel="noopener">Terms of Service</a> &middot; <a href="/privacy/" target="_blank" rel="noopener">Privacy Policy</a> &middot; <a href="/refunds/" target="_blank" rel="noopener">Refund policy</a></p>
+    <p class="sub" style="margin:6px 0 0">Apex Care Solutions VA LLC dba BAP &middot; 5245 Cleveland St, Ste 204, Virginia Beach, VA 23462</p>
+    <p class="sub" style="margin:6px 0 0">Card numbers are entered only on Stripe's secure page. BAP never sees or stores them.</p>
+  </div>
+</section>
+
 <section class="pipe hidden" id="svc" aria-label="Services">
   <div class="toolbar"><span class="count">Services</span><span class="spacer"></span><span class="sub" id="svcPlan"></span></div>
   <div class="panel" id="healthPanel" style="margin-bottom:12px;display:none"></div>
-  <div class="panel" id="billPanel" style="margin-bottom:12px"></div>
   <details class="panel" id="bizPanel"><summary style="cursor:pointer;font-weight:700">My business profile <span class="sub" style="font-weight:400">(optional)</span></summary>
     <p class="sub">Fill this in once. BAP uses it on your contracts (buying name, title company, earnest money, inspection days), on your deal pages, and to sign the emails it drafts to buyers, lenders and contractors.</p>
     <div class="grid4" id="bizForm"></div>
@@ -922,7 +936,7 @@ let state = { page: 0, total: 0, rows: [] };
 let signUp = false;
 
 /* ---------- auth ---------- */
-function showAuth() { $("auth").classList.remove("hidden"); $("app").classList.add("hidden"); $("pipe").classList.add("hidden"); $("deals").classList.add("hidden"); $("svc").classList.add("hidden"); $("lend").classList.add("hidden"); $("buy").classList.add("hidden"); $("crew").classList.add("hidden"); $("inbox").classList.add("hidden"); clearInterval(ibTimer); $("views").classList.add("hidden"); $("signout").classList.add("hidden"); $("practiceBtn").classList.add("hidden"); $("who").textContent = ""; }
+function showAuth() { $("auth").classList.remove("hidden"); $("app").classList.add("hidden"); $("pipe").classList.add("hidden"); $("deals").classList.add("hidden"); $("svc").classList.add("hidden"); $("acct").classList.add("hidden"); $("lend").classList.add("hidden"); $("buy").classList.add("hidden"); $("crew").classList.add("hidden"); $("inbox").classList.add("hidden"); clearInterval(ibTimer); $("views").classList.add("hidden"); $("signout").classList.add("hidden"); $("practiceBtn").classList.add("hidden"); $("who").textContent = ""; }
 let shownFor = null;
 // first-touch marketing attribution: which post / ad / site brought this person (stored once per company)
 (function captureAttr() {
@@ -951,14 +965,14 @@ async function showApp(user) {
   $("auth").classList.add("hidden"); $("app").classList.remove("hidden");
   $("signout").classList.remove("hidden"); $("practiceBtn").classList.toggle("hidden", PRACTICE); $("practiceBtn").onclick = enterPractice; $("who").textContent = user.email; $("views").classList.remove("hidden");
   await loadCounties(); await buildStaticFilters(); await loadSaved(); updateFacets(filters()); initMap(); bizNudge(); ibStartPolling();
-  if (!DEMO) setView("today");   // open on what to do now (the demo tour still starts on the map)
+  if (!DEMO) { const pv = pendingView; pendingView = null; setView(pv || "today"); }   // open on what to do now (the demo tour still starts on the map)
   sendAttr(user);
 }
 $("authSwap").onclick = () => {
   signUp = !signUp;
   $("authTitle").textContent = signUp ? "Create your account" : "Sign in to your leads";
   $("authBtn").textContent = signUp ? "Create account" : "Sign in";
-  $("authSwap").textContent = signUp ? "I already have an account" : "Create an account instead";
+  $("authSwap").textContent = signUp ? "I already have an account" : "Create an account instead"; $("authForgot").classList.toggle("hidden", signUp);
   $("password").autocomplete = signUp ? "new-password" : "current-password";
   $("authMsg").textContent = "";
 };
@@ -974,13 +988,23 @@ $("authForm").onsubmit = async (e) => {
   $("authMsg").textContent = "";
 };
 $("signout").onclick = () => { shownFor = null; sb.auth.signOut(); };
+$("authForgot").onclick = async () => {
+  const email = $("email").value.trim();
+  if (!email) { $("authMsg").className = "msg err"; $("authMsg").textContent = "Type your email above first, then tap Forgot your password."; return; }
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+  if (error) { $("authMsg").className = "msg err"; $("authMsg").textContent = error.message; return; }
+  $("authMsg").className = "msg"; $("authMsg").textContent = "If that email has a BAP account, a reset link is on its way. Check your inbox and spam folder.";
+};
+let pendingView = null, acctRecovery = false;   // where to land after sign-in (Stripe return, password-reset link)
 sb.auth.onAuthStateChange((_evt, session) => {
   const deal = (location.hash.match(/^#deal\/([a-z0-9]+)/) || [])[1];
   if (deal) { renderPublicDeal(deal); return; }            // public deal pages need no sign-in
   if (location.hash === "#join") { renderJoin(); return; }  // contractors / lenders list themselves, no sign-in
   if (DEMO && !session) { startDemo(); return; }           // demo link: temporary private session, then this runs again
+  if (session && _evt === "PASSWORD_RECOVERY") { acctRecovery = true; pendingView = "acct"; }
+  if (session && /^#billing/.test(location.hash)) pendingView = "acct";
   session ? showApp(session.user) : showAuth();
-  if (session && /^#billing/.test(location.hash)) setTimeout(() => setView("svc"), 300);   // back from Stripe Checkout / portal
+  if (session && pendingView) setTimeout(() => { if (pendingView) setView(pendingView); }, 300);   // back from Stripe Checkout / portal
   if (DEMO && session) {
     $("who").textContent = "Demo";
     let toured = false; try { toured = sessionStorage.getItem("bapDemoToured") === "1"; sessionStorage.setItem("bapDemoToured", "1"); } catch (e) { /* ignore */ }
@@ -1472,7 +1496,7 @@ function linkifyContact(text) {
 
 // public deal page: app.buybap.com/#deal/<slug>, no sign-in
 async function renderPublicDeal(slug) {
-  for (const id of ["auth", "app", "pipe", "deals", "svc", "lend", "buy", "crew", "views"]) if ($(id)) $(id).classList.add("hidden");
+  for (const id of ["auth", "app", "pipe", "deals", "svc", "acct", "lend", "buy", "crew", "views"]) if ($(id)) $(id).classList.add("hidden");
   const box = $("dealPublic"); box.classList.remove("hidden"); box.textContent = "Loading deal…";
   const { data, error } = await sb.rpc("public_deal", { p_slug: slug });
   box.textContent = "";
@@ -2037,6 +2061,7 @@ function setView(v) {
   $("mkt").classList.toggle("hidden", v !== "mkt"); $("vMkt").setAttribute("aria-pressed", String(v === "mkt")); if (v === "mkt") loadMarket();
   $("app").classList.toggle("hidden", v !== "leads"); $("pipe").classList.toggle("hidden", v !== "pipe");
   $("deals").classList.toggle("hidden", v !== "deals"); $("svc").classList.toggle("hidden", v !== "svc");
+  $("acct").classList.toggle("hidden", v !== "acct"); $("vAcct").setAttribute("aria-pressed", String(v === "acct")); if (v === "acct") renderAccount();
   $("lend").classList.toggle("hidden", v !== "lend"); $("vLend").setAttribute("aria-pressed", String(v === "lend")); if (v === "lend") loadLenders();
   $("crew").classList.toggle("hidden", v !== "crew"); $("vCrew").setAttribute("aria-pressed", String(v === "crew")); if (v === "crew") { proFinder("contractor", $("crewFinder")); contactsPanel("contractor", $("crewContacts")); }
   $("buy").classList.toggle("hidden", v !== "buy"); $("vBuy").setAttribute("aria-pressed", String(v === "buy")); if (v === "buy") { loadBuyers(); if (!$("bForm").childElementCount) buyerForm(null), $("bPanel").open = false; }
@@ -2044,7 +2069,7 @@ function setView(v) {
   $("vLeads").setAttribute("aria-pressed", String(v === "leads")); $("vPipe").setAttribute("aria-pressed", String(v === "pipe"));
   $("vDeals").setAttribute("aria-pressed", String(v === "deals"));
   $("inbox").classList.toggle("hidden", v !== "inbox"); $("vInbox").setAttribute("aria-pressed", String(v === "inbox")); if (v === "inbox") { loadInbox(); ibBadge(); }
-  const secV = { deals: "vDeals", buy: "vBuy", mkt: "vMkt", lend: "vLend", crew: "vCrew", svc: "vSvc" };
+  const secV = { deals: "vDeals", buy: "vBuy", mkt: "vMkt", lend: "vLend", crew: "vCrew", svc: "vSvc", acct: "vAcct" };
   $("vMore").setAttribute("aria-pressed", String(v in secV));
   for (const b of document.querySelectorAll("#moreSheet button")) b.setAttribute("aria-current", String(b.dataset.for === secV[v]));
   if (!PRACTICE && v && v !== setView._last) { setView._last = v; sb.rpc("log_tab", { p_tab: v }).then(() => {}, () => {}); }  // real usage, to keep this order honest
@@ -2156,6 +2181,36 @@ $("mPostBtn").onclick = () => {
     el("p", { class: "sub", text: "Only post properties you have the right to market (your own contract or listing)." }), send, msg);
 };
 $("vSvc").onclick = () => setView("svc");
+$("vAcct").onclick = () => setView("acct");
+$("who").style.cursor = "pointer"; $("who").title = "Open your account"; $("who").onclick = () => setView("acct");
+async function renderAccount() {
+  const box = $("acctSign"); box.textContent = "";
+  box.append(el("h3", { style: "margin:0 0 6px", text: "Sign-in" }));
+  const { data } = await sb.auth.getUser(); const user = data && data.user;
+  if (PRACTICE || DEMO || !user) {
+    box.append(el("p", { class: "sub", text: "You're in practice or demo mode, which has no account. Create a free BAP account to save your work." }));
+    loadBilling(); return;
+  }
+  const msg = el("p", { class: "sub", role: "status" });
+  if (acctRecovery) box.append(el("p", { class: "msg", text: "Password reset: choose a new password below to finish." }));
+  box.append(el("p", { style: "margin:0 0 10px" }, "Signed in as ", el("b", { text: user.email })));
+  const p1 = el("input", { type: "password", autocomplete: "new-password", minlength: "8", placeholder: "New password (8+ characters)", "aria-label": "New password" });
+  const p2 = el("input", { type: "password", autocomplete: "new-password", minlength: "8", placeholder: "Type it again", "aria-label": "Confirm new password" });
+  const save = el("button", { class: "primary small", type: "button", text: "Change password" });
+  save.onclick = async () => {
+    if (p1.value.length < 8) { msg.className = "msg err"; msg.textContent = "Use at least 8 characters."; return; }
+    if (p1.value !== p2.value) { msg.className = "msg err"; msg.textContent = "The two passwords don't match."; return; }
+    msg.className = "sub"; msg.textContent = "Saving…";
+    const { error } = await sb.auth.updateUser({ password: p1.value });
+    if (error) { msg.className = "msg err"; msg.textContent = error.message; return; }
+    p1.value = ""; p2.value = ""; acctRecovery = false; msg.className = "msg"; msg.textContent = "Password changed.";
+  };
+  const out = el("button", { class: "ghost small", type: "button", text: "Sign out" });
+  out.onclick = () => $("signout").click();
+  const grid = el("div", { class: "row2", style: "flex-wrap:wrap;gap:8px" }); grid.append(p1, p2, save);
+  box.append(el("div", { class: "sub", style: "margin:0 0 4px", text: "Change password" }), grid, msg, el("div", { style: "margin-top:10px" }, out));
+  loadBilling();
+}
 $("vLend").onclick = () => setView("lend");
 $("vBuy").onclick = () => setView("buy");
 $("vCrew").onclick = () => setView("crew");
@@ -4211,7 +4266,7 @@ async function loanPackageForm(mount, lenders) {
 
 // public page: app.buybap.com/#join - contractors and lenders list themselves (no account)
 function renderJoin() {
-  for (const id of ["auth", "app", "pipe", "deals", "svc", "lend", "buy", "crew", "views"]) if ($(id)) $(id).classList.add("hidden");
+  for (const id of ["auth", "app", "pipe", "deals", "svc", "acct", "lend", "buy", "crew", "views"]) if ($(id)) $(id).classList.add("hidden");
   const box = $("dealPublic"); box.classList.remove("hidden"); box.textContent = "";
   let kind = "contractor";
   const kindRow = el("div", { class: "row2" }); const cats = el("div"); const extra = el("div", { class: "grid4" }); const msg = el("p", { role: "status" });
