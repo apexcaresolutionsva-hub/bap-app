@@ -844,6 +844,58 @@ if ("serviceWorker" in navigator) window.addEventListener("load", () => navigato
     .observe(document.body, { attributes: true, attributeFilter: ["class"] });
   addEventListener("load", () => setTimeout(maybeShow, 15000));
 })();
+/* "Get the app" screen for people who scanned the printed QR code (buybap.com/get/ -> app.buybap.com/?install=1). Phones only.
+   Android/Chrome: one Install button that opens the browser's real install prompt. iPhone Safari: Apple has no install button
+   for web apps, so one big arrow points at Share. Shown once per browser session; hidden if the app is already installed. */
+(function getTheApp() {
+  if (new URLSearchParams(location.search).get("install") !== "1") return;
+  const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  const ua = navigator.userAgent;
+  const ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const iosSafari = ios && !/CriOS|FxiOS|EdgiOS|OPiOS|GSA\//.test(ua);
+  const android = /Android/.test(ua);
+  if (standalone || !(ios || android)) return;
+  try { if (sessionStorage.getItem("bapGetShown")) return; sessionStorage.setItem("bapGetShown", "1"); } catch (e) { /* private mode: show anyway */ }
+  let deferred = null;
+  addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); deferred = e; });
+  const css = document.createElement("style");
+  css.textContent = "#getApp{position:fixed;inset:0;z-index:30;background:var(--bg,#fff);color:var(--ink,#111);display:flex;flex-direction:column;align-items:center;justify-content:center;" +
+    "text-align:center;padding:24px calc(24px + env(safe-area-inset-right,0px)) calc(24px + env(safe-area-inset-bottom,0px)) calc(24px + env(safe-area-inset-left,0px));gap:14px}" +
+    "#getApp img.ic{width:96px;height:96px;border-radius:22px;box-shadow:0 8px 28px rgba(10,20,35,.25)}#getApp h1{font-size:28px;line-height:1.15;margin:6px 0 0}" +
+    "#getApp p{margin:0;font-size:17px;line-height:1.4;max-width:320px;opacity:.8}#getApp button{font:inherit;font-size:18px;font-weight:700;border-radius:14px;padding:15px 22px;cursor:pointer;border:0;width:100%;max-width:340px}" +
+    "#getApp .go{background:#0a66d9;color:#fff}#getApp .skip{background:transparent;color:inherit;font-size:15px;font-weight:500;opacity:.8;padding:8px}" +
+    "#getApp .arrow{position:absolute;left:0;right:0;bottom:calc(14px + env(safe-area-inset-bottom,0px));font-size:44px;animation:getBounce 1s infinite}" +
+    "@keyframes getBounce{0%,100%{transform:translateY(0)}50%{transform:translateY(12px)}}";
+  document.head.append(css);
+  const ov = document.createElement("div");
+  ov.id = "getApp"; ov.setAttribute("role", "dialog"); ov.setAttribute("aria-label", "Get the BAP app");
+  const mk = (tag, props, ...kids) => { const n = document.createElement(tag); Object.assign(n, props || {}); n.append(...kids); return n; };
+  const close = () => ov.remove();
+  const demo = () => { const u = new URL(location.href); u.searchParams.delete("install"); u.hash = "#demo"; location.replace(u.toString()); location.reload(); };
+  const icon = mk("img", { className: "ic", src: "icon-192.png", alt: "" });
+  const render = (title, text, buttonText, onGo, withArrow) => {
+    ov.replaceChildren(icon, mk("h1", { textContent: title }), mk("p", { textContent: text }));
+    if (buttonText) ov.append(mk("button", { className: "go", type: "button", textContent: buttonText, onclick: onGo }));
+    ov.append(mk("button", { className: "skip", type: "button", textContent: "Not now, try the free demo", onclick: demo }));
+    if (withArrow) ov.append(mk("div", { className: "arrow", textContent: "⬇", "aria-hidden": "true" }));
+  };
+  addEventListener("appinstalled", () => { render("BAP is on your home screen", "Find the BAP icon and open it from there.", "Got it", close); });
+  const home = () => {
+    if (iosSafari) {
+      render("Get BAP on your phone", "Free to try. Opens full screen, like any app.", "Add to Home Screen", () =>
+        render("Tap Share, then “Add to Home Screen”", "The Share button is the square with an up arrow, in the bar at the bottom of Safari.", "Got it", close, true));
+    } else if (ios) {
+      render("Open this in Safari", "On iPhone, apps are added from Safari. Copy this page's link, open Safari and paste it.", "Okay", close);
+    } else {
+      render("Get BAP on your phone", "Free to try. Opens full screen, like any app.", "Install BAP", async () => {
+        if (deferred) { const d = deferred; deferred = null; try { await d.prompt(); } catch (e) { /* dismissed */ } }
+        else render("Add BAP from the menu", "Tap the ⋮ menu at the top right of Chrome, then “Install app” or “Add to Home screen”.", "Got it", close);
+      });
+    }
+  };
+  home();
+  document.body.append(ov);
+})();
 
 const KINDS = {
   pre_foreclosure: "Pre-foreclosure", foreclosure_sale: "Foreclosure sale", tax_delinquent: "Tax delinquent",
