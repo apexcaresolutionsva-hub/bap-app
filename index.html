@@ -3619,6 +3619,7 @@ function ambCodeBox(mine) {
     const { data: r } = await sb.rpc("code_entry", { p_code: code });
     if (code === stored) { try { localStorage.removeItem("bapJoin"); } catch (e) { /* private mode */ } }
     if (r && r.ok && r.kind === "join") { ambJoinForm(form, code); return; }
+    if (r && r.ok && r.kind === "employee") { renderAccount(); return; }
     note.textContent = r && r.ok ? "Code " + r.code + " applied: " + r.offer + "." : (r && r.reason) || "That code isn't valid.";
   };
   bt.onclick = () => { if (inp.value.trim()) check(inp.value.trim()); };
@@ -3644,18 +3645,20 @@ function ambJoinForm(form, word) {
   };
   form.append(el("h3", { style: "margin:18px 0 6px", text: "Become a BAP brand ambassador" }),
     el("p", { class: "sub", style: "margin:0 0 8px", text: "You get your own link and code to share. People who join BAP with it get 25% off their first 3 months on a monthly plan, " +
-      "and you earn 20% of what they pay for their plan, for every month they stay. Earnings are held 30 days in case of refunds, then paid out monthly." }),
+      "and you earn 20% of what they pay for their plan, for every month they stay. Earnings are held 30 days in case of refunds, then paid out monthly. " +
+      "Once your first member pays, you also get 25% off your own monthly plan for 3 months." }),
     el("div", { class: "row2", style: "flex-wrap:wrap;gap:8px" }, nm, ph, cd),
     el("div", { style: "margin:8px 0;display:flex;gap:8px;align-items:flex-start" }, agree,
       el("label", { for: "ambAgree", text: "I understand I'm an independent ambassador, not a BAP employee, and I'll tell people I earn a commission when I share my link or code." })),
     go, msg);
 }
 async function ambassadorPanels(box) {
-  const mine = el("div"), adminBox = el("div"); box.append(mine, adminBox);
+  const mine = el("div"), empBox = el("div"), codeBox = el("div"), adminBox = el("div"), empAdminBox = el("div");
+  box.append(mine, empBox, codeBox, adminBox, empAdminBox);
+  ambCodeBox(codeBox); employeePanel(empBox);
   try {
     const { data: a } = await sb.rpc("my_ambassador");
-    if (!a) ambCodeBox(mine);
-    else {
+    if (a) {
       const link = "https://app.buybap.com/?amb=" + a.code;
       const copy = el("button", { class: "ghost small", type: "button", text: "Copy link" });
       copy.onclick = async () => { try { await navigator.clipboard.writeText(link); copy.textContent = "Copied"; } catch (e) { copy.textContent = "Copy it from the line above"; } };
@@ -3664,7 +3667,7 @@ async function ambassadorPanels(box) {
         el("p", { style: "margin:0 0 4px" }, "Your code: ", el("b", { text: a.code })),
         el("p", { style: "margin:0 0 6px;word-break:break-all" }, "Your link: ", el("b", { text: link }), " ", copy),
         el("p", { class: "sub", style: "margin:0 0 8px", text: "New members who use your link or code get 25% off their first 3 months on a monthly plan. You earn " +
-          Math.round(Number(a.rate) * 100) + "% of what each of your members pays for their plan, for every month they stay. Earnings are held 30 days in case of refunds, then paid out monthly." }),
+          Math.round(Number(a.rate) * 100) + "% of what each of your members pays for their plan, for every month they stay. Earnings are held 30 days in case of refunds, then paid out monthly. Once your first member pays, you get 25% off your own monthly plan for 3 months." }),
         el("p", { style: "margin:0 0 6px" }, "Signed up: ", el("b", { text: String(a.signups) }), " · Paying now: ", el("b", { text: String(a.paying) })),
         el("p", { style: "margin:0 0 8px" }, "On 30-day hold: ", el("b", { text: ambCents(a.on_hold_cents) }), " · Ready to pay out: ", el("b", { text: ambCents(a.payable_cents) }),
           " · Paid to you so far: ", el("b", { text: ambCents(a.paid_cents) })));
@@ -3673,7 +3676,70 @@ async function ambassadorPanels(box) {
         (m.plan === "free" ? "free plan" : m.plan + (m.status === "trialing" ? " (free trial)" : "")) + " · earned " + ambCents(m.earned_cents) }));
     }
   } catch (e) { /* not an ambassador */ }
-  if (await isBapOwner()) ambAdmin(adminBox);
+  if (await isBapOwner()) { ambAdmin(adminBox); empAdmin(empAdminBox); }
+}
+/* ---------- Employee accounts: BAP covers the plan and services up to a monthly budget ---------- */
+const empUsd = (v) => "$" + Number(v || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+async function employeePanel(box) {
+  try {
+    const { data: e } = await sb.rpc("my_employee");
+    if (!e) return;
+    const note = el("span", { class: "sub", role: "status" });
+    const amt = el("input", { type: "number", min: "1", step: "1", placeholder: "Monthly amount, e.g. 100", "aria-label": "Monthly budget you need", style: "max-width:200px" });
+    const why = el("input", { type: "text", placeholder: "What it's for (optional)", "aria-label": "What it's for", autocomplete: "off" });
+    const ask = el("button", { class: "ghost small", type: "button", text: "Ask for a higher budget" });
+    ask.onclick = async () => {
+      const { data: r } = await sb.rpc("employee_request_budget", { p_amount: Number(amt.value), p_note: why.value || null });
+      if (r && r.ok) { renderAccount(); return; }
+      note.textContent = (r && r.reason) || "Couldn't send the request. Try again.";
+    };
+    box.append(el("h3", { style: "margin:18px 0 6px", text: "Employee account" }),
+      el("p", { style: "margin:0 0 4px" }, "BAP covers your plan and services. Used this month: ", el("b", { text: empUsd(e.spent) }), " of ", el("b", { text: empUsd(e.budget) })),
+      el("p", { class: "sub", style: "margin:0 0 8px", text: "Usage is counted at member prices and resets on the 1st. If you reach your budget, services pause until it is raised or the month ends." }),
+      e.requested ? el("p", { class: "msg", style: "margin:0 0 8px", text: "You asked for " + empUsd(e.requested) + " a month. Waiting for approval." }) : null,
+      el("div", { class: "row2", style: "flex-wrap:wrap;gap:8px" }, amt, why, ask), note);
+  } catch (e) { /* not an employee account */ }
+}
+async function empAdmin(box) {
+  box.textContent = "";
+  const { data: d } = await sb.rpc("admin_employees");
+  if (!d) return;
+  const msg = el("p", { class: "sub", role: "status" });
+  const upd = async (args) => {
+    const { data: r, error } = await sb.rpc("admin_employee_update", Object.assign({ p_org: null, p_budget: null, p_remove: false, p_word: null }, args));
+    if (error || !r || !r.ok) { msg.className = "msg err"; msg.textContent = (r && r.reason) || "Couldn't save. Try again."; return; }
+    empAdmin(box);
+  };
+  const nw = el("input", { type: "text", placeholder: "New employee word", "aria-label": "New employee word", autocomplete: "off", style: "max-width:190px" });
+  const ch = el("button", { class: "ghost small", type: "button", text: "Change word" });
+  ch.onclick = () => { if (nw.value.trim()) upd({ p_word: nw.value.trim() }); };
+  box.append(el("h3", { style: "margin:18px 0 6px", text: "Employees (owner only)" }),
+    el("p", { style: "margin:0 0 4px" }, "Employee word: ", el("b", { text: d.word })),
+    el("p", { class: "sub", style: "margin:0 0 6px", text: "An employee types this word in the \"Have a code?\" box on their Account screen. Their plan and services are then covered by BAP, " +
+      "up to $50 of usage a month until you set a different budget. Keep the word private: change it here if it gets out." }),
+    el("div", { style: "display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:0 0 10px" }, nw, ch));
+  if (!d.list.length) box.append(el("p", { class: "sub", text: "No employee accounts yet." }));
+  for (const e of d.list) {
+    const row = el("div", { style: "border:1px solid currentColor;border-radius:10px;padding:8px 10px;margin:0 0 8px" });
+    row.append(el("p", { style: "margin:0 0 2px;word-break:break-all" }, el("b", { text: e.email || "Employee" })),
+      el("p", { class: "sub", style: "margin:0 0 6px", text: "Used this month " + empUsd(e.spent) + " of " + empUsd(e.budget) }));
+    const btns = el("div", { style: "display:flex;gap:6px;flex-wrap:wrap;align-items:center" });
+    if (e.requested) {
+      row.append(el("p", { class: "msg", style: "margin:0 0 6px", text: "Asked for " + empUsd(e.requested) + " a month" + (e.note ? ": " + e.note : "") }));
+      const okb = el("button", { class: "primary small", type: "button", text: "Approve " + empUsd(e.requested) });
+      okb.onclick = () => upd({ p_org: e.org_id, p_budget: Number(e.requested) });
+      const no = el("button", { class: "ghost small", type: "button", text: "Keep " + empUsd(e.budget) });
+      no.onclick = () => upd({ p_org: e.org_id, p_budget: Number(e.budget) });
+      btns.append(okb, no);
+    }
+    const b = el("input", { type: "number", min: "0", step: "1", placeholder: "New budget", "aria-label": "New monthly budget", style: "max-width:130px" });
+    const sv = el("button", { class: "ghost small", type: "button", text: "Set budget" });
+    sv.onclick = () => { if (b.value !== "") upd({ p_org: e.org_id, p_budget: Number(b.value) }); };
+    const rm = el("button", { class: "ghost small", type: "button", text: "Remove" });
+    rm.onclick = () => { if (confirm("Remove " + (e.email || "this employee") + "? Their account goes back to the free plan.")) upd({ p_org: e.org_id, p_remove: true }); };
+    btns.append(b, sv, rm); row.append(btns); box.append(row);
+  }
+  box.append(msg);
 }
 async function ambAdmin(box) {
   box.textContent = "";
