@@ -952,7 +952,9 @@ let shownFor = null;
 })();
 // brand ambassador link (?amb=CODE): remembered here, applied to the workspace after sign-in
 try { const c = new URLSearchParams(location.search).get("amb"); if (c) localStorage.setItem("bapAmb", c.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 20)); } catch (e) { /* private mode */ }
+try { const j = new URLSearchParams(location.search).get("join"); if (j) localStorage.setItem("bapJoin", j.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 30)); } catch (e) { /* private mode */ }
 async function sendAmb(user) {
+  try { if (!user.is_anonymous && localStorage.getItem("bapJoin")) setTimeout(() => { try { setView("acct"); } catch (e) { /* not ready */ } }, 1500); } catch (e) { /* private mode */ }
   try {
     const c = localStorage.getItem("bapAmb"); if (!c || user.is_anonymous) return;
     await sb.rpc("ensure_org");
@@ -3600,25 +3602,60 @@ async function billingGo(fn, body, msg) {
 const ambCents = (c) => "$" + (Number(c || 0) / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 function ambOfferRow() {
   const wrap = el("div", { style: "margin:8px 0" });
-  const draw = async (code) => {
-    const { data: o } = await sb.rpc("ambassador_offer", { p_code: code || null });
-    wrap.textContent = "";
-    if (o && o.closed) return;
-    if (o && o.ok) { wrap.append(el("p", { class: "msg", style: "margin:0", text: "Ambassador code " + o.code + " applied: " + o.offer + ". You'll see the discount at checkout." })); return; }
-    const inp = el("input", { type: "text", placeholder: "Ambassador code", "aria-label": "Ambassador code", autocomplete: "off", style: "max-width:170px" });
-    const bt = el("button", { class: "ghost small", type: "button", text: "Apply" });
-    const note = el("span", { class: "sub", role: "status", text: code && o && o.reason ? o.reason : "" });
-    bt.onclick = () => { if (inp.value.trim()) draw(inp.value.trim()); };
-    wrap.append(el("div", { style: "display:flex;gap:6px;align-items:center;flex-wrap:wrap" }, el("span", { class: "sub", text: "Have an ambassador code?" }), inp, bt, note));
-  };
-  draw("");
+  sb.rpc("ambassador_offer", { p_code: null }).then(({ data: o }) => {
+    if (o && o.ok) wrap.append(el("p", { class: "msg", style: "margin:0", text: "Code " + o.code + " applied: " + o.offer + ". You'll see the discount at checkout." }));
+  }).catch(() => {});
   return wrap;
+}
+// Account: a plain "Have a code?" box. An ambassador's code gives a new member the discount; the join word opens ambassador signup.
+function ambCodeBox(mine) {
+  const inp = el("input", { type: "text", placeholder: "Code", "aria-label": "Code", autocomplete: "off", style: "max-width:170px" });
+  const bt = el("button", { class: "ghost small", type: "button", text: "Apply" });
+  const note = el("span", { class: "sub", role: "status" });
+  const form = el("div");
+  let stored = ""; try { stored = localStorage.getItem("bapJoin") || ""; } catch (e) { /* private mode */ }
+  const check = async (code) => {
+    note.textContent = "";
+    const { data: r } = await sb.rpc("code_entry", { p_code: code });
+    if (code === stored) { try { localStorage.removeItem("bapJoin"); } catch (e) { /* private mode */ } }
+    if (r && r.ok && r.kind === "join") { ambJoinForm(form, code); return; }
+    note.textContent = r && r.ok ? "Code " + r.code + " applied: " + r.offer + "." : (r && r.reason) || "That code isn't valid.";
+  };
+  bt.onclick = () => { if (inp.value.trim()) check(inp.value.trim()); };
+  mine.append(el("div", { style: "display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:14px" }, el("span", { class: "sub", text: "Have a code?" }), inp, bt, note), form);
+  if (stored) check(stored);
+}
+function ambJoinForm(form, word) {
+  form.textContent = "";
+  const msg = el("p", { class: "sub", role: "status" });
+  const f = (ph, type) => el("input", { type: type || "text", placeholder: ph, "aria-label": ph, autocomplete: "off" });
+  const nm = f("Your full name"), ph = f("Phone (optional)", "tel"), cd = f("Pick your code, e.g. MIKE25");
+  const agree = el("input", { type: "checkbox", id: "ambAgree" });
+  const go = el("button", { class: "primary small", type: "button", text: "Become an ambassador" });
+  go.onclick = async () => {
+    if (!agree.checked) { msg.className = "msg err"; msg.textContent = "Tick the box to continue."; return; }
+    msg.className = "sub"; msg.textContent = "Setting up your code…"; go.disabled = true;
+    const { data, error } = await sb.functions.invoke("ambassadors", { body: { action: "join", word, name: nm.value, phone: ph.value, code: cd.value } });
+    let text = (data && data.error) || (error && error.message) || "";
+    if (error && error.context && typeof error.context.json === "function") { try { text = (await error.context.json()).error || text; } catch (e) { /* keep */ } }
+    go.disabled = false;
+    if (text) { msg.className = "msg err"; msg.textContent = text; return; }
+    renderAccount();
+  };
+  form.append(el("h3", { style: "margin:18px 0 6px", text: "Become a BAP brand ambassador" }),
+    el("p", { class: "sub", style: "margin:0 0 8px", text: "You get your own link and code to share. People who join BAP with it get 25% off their first 3 months on a monthly plan, " +
+      "and you earn 20% of what they pay for their plan, for every month they stay. Earnings are held 30 days in case of refunds, then paid out monthly." }),
+    el("div", { class: "row2", style: "flex-wrap:wrap;gap:8px" }, nm, ph, cd),
+    el("div", { style: "margin:8px 0;display:flex;gap:8px;align-items:flex-start" }, agree,
+      el("label", { for: "ambAgree", text: "I understand I'm an independent ambassador, not a BAP employee, and I'll tell people I earn a commission when I share my link or code." })),
+    go, msg);
 }
 async function ambassadorPanels(box) {
   const mine = el("div"), adminBox = el("div"); box.append(mine, adminBox);
   try {
     const { data: a } = await sb.rpc("my_ambassador");
-    if (a) {
+    if (!a) ambCodeBox(mine);
+    else {
       const link = "https://app.buybap.com/?amb=" + a.code;
       const copy = el("button", { class: "ghost small", type: "button", text: "Copy link" });
       copy.onclick = async () => { try { await navigator.clipboard.writeText(link); copy.textContent = "Copied"; } catch (e) { copy.textContent = "Copy it from the line above"; } };
@@ -3649,8 +3686,23 @@ async function ambAdmin(box) {
     return true;
   };
   box.append(el("h3", { style: "margin:18px 0 6px", text: "Ambassadors (owner only)" }));
+  const { data: word } = await sb.rpc("admin_join_word", { p_new: null });
+  if (word) {
+    const nw = el("input", { type: "text", placeholder: "New join word", "aria-label": "New join word", autocomplete: "off", style: "max-width:170px" });
+    const ch = el("button", { class: "ghost small", type: "button", text: "Change word" });
+    ch.onclick = async () => {
+      if (!nw.value.trim()) return;
+      const { error } = await sb.rpc("admin_join_word", { p_new: nw.value.trim() });
+      if (error) { msg.className = "msg err"; msg.textContent = error.message; return; }
+      ambAdmin(box);
+    };
+    box.append(el("p", { style: "margin:0 0 4px;word-break:break-all" }, "Invite link: ", el("b", { text: "https://app.buybap.com/?join=" + word })),
+      el("p", { class: "sub", style: "margin:0 0 6px", text: "Anyone who opens this link, or types " + word + " in the \"Have a code?\" box on their Account screen, becomes an ambassador right away. " +
+        "Nothing else in BAP mentions the program. Changing the word turns the old link off." }),
+      el("div", { style: "display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:0 0 10px" }, nw, ch));
+  }
   const { data: list } = await sb.rpc("admin_ambassadors");
-  if (!list || !list.length) box.append(el("p", { class: "sub", text: "No ambassadors yet. Add your first one below." }));
+  if (!list || !list.length) box.append(el("p", { class: "sub", text: "No ambassadors yet. Share the invite link, or add one by hand below." }));
   for (const a of list || []) {
     const row = el("div", { style: "border:1px solid currentColor;border-radius:10px;padding:8px 10px;margin:0 0 8px" });
     row.append(el("p", { style: "margin:0 0 2px" }, el("b", { text: a.name }), " · code ", el("b", { text: a.code }), " · " + Math.round(Number(a.rate) * 100) + "%" + (a.active ? "" : " · paused")),
