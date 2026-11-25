@@ -182,6 +182,8 @@ main.results { position: relative; padding: 0; }
 #map { position: absolute; inset: 0; }
 .map-top { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; gap: 8px; z-index: 3; pointer-events: none; }
 .map-top > * { pointer-events: auto; }
+.maptools { display: contents; }
+.maptools > * { pointer-events: auto; flex: none; }
 /* a lead card on the map hides the floating controls so nothing covers it; they come back when the card closes */
 .mapwrap.card-open .map-top, .mapwrap.card-open .map-legend, .mapwrap.card-open .map-bottom, .mapwrap.card-open .map-note { display: none; }
 .mapsearch { flex: 1; max-width: 420px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
@@ -192,6 +194,13 @@ main.results { position: relative; padding: 0; }
   align-items: center; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 6px 6px 6px 14px;
   box-shadow: 0 2px 10px rgba(10, 20, 35, .22); white-space: nowrap; font-size: 14px; }
 .map-bottom button { border-radius: 999px; }
+.keyfacts { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 4px; }
+.keyfacts span { background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; font-size: 13px; }
+.jumpbar { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.mapnote-empty { position: absolute; left: 12px; right: 12px; bottom: 64px; z-index: 3; background: var(--bg); border: 1px solid var(--line);
+  border-radius: 12px; padding: 10px 12px; font-size: 14px; box-shadow: 0 4px 14px rgba(10,20,35,.15); }
+.guide dt { font-weight: 700; margin-top: 10px; } .guide dd { margin: 2px 0 0; }
+.help { font-size: 12px; color: var(--muted, #667); display: block; margin-top: 2px; font-weight: 400; }
 .map-legend { position: absolute; top: 62px; left: 12px; z-index: 2; display: flex; flex-wrap: wrap; gap: 6px; max-width: 70%; }
 .map-legend span { background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px 3px 7px; font-size: 12px;
   display: inline-flex; align-items: center; gap: 5px; box-shadow: 0 1px 4px rgba(10, 20, 35, .12); }
@@ -268,12 +277,14 @@ tbody tr:last-child td { border-bottom: 0; }
 .links { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 14px; font-size: 14px; }
 .links a { color: var(--focus); }
 .scrim { position: fixed; inset: 0; background: rgba(10, 20, 35, .35); z-index: 15; }
+@media (max-width: 860px) { body.sheet-open .scrim { background: rgba(10, 20, 35, .12); } }
 
 @media (max-width: 860px) {
   .app { grid-template-columns: 1fr; }
-  aside.filters { position: fixed; inset: 0 0 0 auto; width: min(320px, 90%); z-index: 18; transform: translateX(-100%);
-    left: 0; right: auto; visibility: hidden; transition: transform .22s ease, visibility 0s .22s;
-    padding-top: 0; }
+  aside.filters { position: fixed; left: 0; right: 0; bottom: 0; top: auto; width: 100%; max-height: 62vh; z-index: 18;
+    transform: translateY(100%); visibility: hidden; transition: transform .22s ease, visibility 0s .22s;
+    padding-top: 0; border-right: 0; border-top: 1px solid var(--line); border-radius: 16px 16px 0 0;
+    box-shadow: 0 -8px 24px rgba(10,20,35,.18); padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px)); }
   aside.filters.open { transform: none; visibility: visible; transition: transform .22s ease; }
   .filters-toggle { display: inline-block; }
   main.results { padding: 14px; }
@@ -319,6 +330,10 @@ tbody tr:last-child td { border-bottom: 0; }
   .listpanel { top: auto; left: 0; width: 100%; height: 72%; border-left: 0; border-top: 1px solid var(--line); border-radius: 16px 16px 0 0; }
   .map-legend { display: none; }
   .map-top { flex-wrap: wrap; }
+  .maptools { display: flex; gap: 8px; width: 100%; overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; }
+  .maptools::-webkit-scrollbar { display: none; }
+  .maptools .mapbtn { padding: 8px 12px; white-space: nowrap; }
+  .maptools select.mapbtn { width: auto; max-width: 130px; }
   .map-top .mapsearch { flex-basis: 100%; max-width: none; order: -1; }
   .map-hint { top: 118px; }
   .map-bottom { bottom: 12px; }
@@ -413,8 +428,9 @@ tbody tr:last-child td { border-bottom: 0; }
     <div class="mapwrap" id="mapWrap">
       <div id="map" role="region" aria-label="Map of leads"></div>
       <div class="map-top">
-        <button class="mapbtn filters-toggle" id="mapFilters" type="button">Filters</button>
         <input type="search" id="mapQ" class="mapsearch" placeholder="Any address (driving for dollars), ZIP or owner" aria-label="Search the map">
+        <div class="maptools">
+        <button class="mapbtn filters-toggle" id="mapFilters" type="button">Filters</button>
         <button class="mapbtn" id="myLoc" type="button" title="Use my location" aria-label="Use my location">📍</button>
         <select class="mapbtn" id="marketSel" aria-label="Jump to market">
           <option value="">Markets…</option>
@@ -423,7 +439,10 @@ tbody tr:last-child td { border-bottom: 0; }
         <button class="mapbtn" id="drawBtn" type="button">Draw area</button>
         <button class="mapbtn" id="heatBtn" type="button" aria-pressed="false">Heat map</button>
         <button class="mapbtn" id="natBtn" type="button" title="Pre-foreclosure, auction, probate and more for any US area">Nationwide leads</button>
+        <button class="mapbtn" id="guideBtn" type="button" aria-label="How BAP works">? Guide</button>
+        </div>
       </div>
+      <div class="mapnote-empty hidden" id="mapEmpty" role="status"></div>
       <div class="map-hint hidden" id="drawHint">Tap the map to outline an area. <button class="primary small" id="drawDone" type="button">Finish</button></div>
       <div class="map-legend" id="mapLegend" aria-label="Lead type colors"></div>
       <div class="map-bottom">
@@ -441,7 +460,7 @@ tbody tr:last-child td { border-bottom: 0; }
       <label for="sort" class="sub">Sort by</label>
       <select id="sort" class="ghost">
         <option value="score">Highest score</option><option value="sale">Soonest auction</option>
-        <option value="value">Highest value</option><option value="newest">Newest signal</option>
+        <option value="value">Highest value</option><option value="newest">Newest signal</option><option value="nearest">Nearest to map center</option>
       </select>
       <button class="ghost" id="csv" type="button">Download CSV</button>
     </div>
@@ -1061,7 +1080,15 @@ async function showApp(user) {
   $("auth").classList.add("hidden"); $("app").classList.remove("hidden");
   $("signout").classList.remove("hidden"); $("practiceBtn").classList.toggle("hidden", PRACTICE); $("practiceBtn").onclick = enterPractice; $("who").textContent = user.email; $("views").classList.remove("hidden");
   await loadCounties(); await buildStaticFilters(); await loadSaved(); updateFacets(filters()); initMap(); bizNudge(); ibStartPolling();
-  if (!DEMO) { const pv = pendingView; pendingView = null; setView(pv || "today"); }   // open on what to do now (the demo tour still starts on the map)
+  if (!DEMO) {
+    const pv = pendingView; pendingView = null;
+    let last = null, lead = null;   // reopen where you left off (within 12 hours)
+    try { last = JSON.parse(localStorage.getItem("bapLastView") || "null"); lead = JSON.parse(localStorage.getItem("bapLastLead") || "null"); } catch (e) { /* ignore */ }
+    const fresh = (x) => x && Date.now() - x.at < 12 * 3600e3;
+    setView(pv || (fresh(last) ? last.v : "today"), true);
+    try { history.replaceState({ bapView: setView._cur }, ""); } catch (e) { /* ignore */ }
+    if (!pv && fresh(lead)) setTimeout(() => openDetail(lead.id), 600);
+  }   // open on what to do now (the demo tour still starts on the map)
   sendAttr(user);
   sendAmb(user);
 }
@@ -1656,6 +1683,15 @@ async function refreshMap() {
   leadMap.getSource("leads").setData({ type: "FeatureCollection", features: mapFeatures(data) });
   const n = Number(data.total || 0), active = filtersActive(f);
   $("mapCount").textContent = n.toLocaleString("en-US") + (n === 1 ? " lead" : " leads") + " in view";
+  const me = $("mapEmpty");
+  if (n === 0 && !drawArea) {
+    me.textContent = "";
+    me.append(active ? "No leads match these filters here. Zoom out, or clear a filter. "
+      : "BAP's free county data doesn't cover this area yet. ",
+      el("button", { class: "primary small", type: "button", text: "Pull Nationwide leads here", onclick: () => $("natBtn").click() }),
+      el("span", { class: "help", text: "Nationwide leads cover pre-foreclosure, auction, probate, tax liens and vacant homes in any US county. Each property you save uses one nationwide lead from your plan." }));
+    me.classList.remove("hidden");
+  } else me.classList.add("hidden");
   // the list always works: it shows the leads in the map view (plus any filters)
   $("listBtn").disabled = n === 0;
   $("listBtn").textContent = "Show list";
@@ -1735,7 +1771,34 @@ function initMap() {
 }
 $("listBtn").onclick = openList;
 $("closeList").onclick = closeList;
-$("mapFilters").onclick = () => { $("filters").classList.add("open"); $("scrim").classList.remove("hidden"); };
+$("mapFilters").onclick = () => { $("filters").classList.add("open"); $("scrim").classList.remove("hidden"); document.body.classList.add("sheet-open");
+  try { history.pushState({ bapView: setView._cur, bapSheet: 1 }, ""); } catch (e) { /* ignore */ } };
+window.addEventListener("popstate", (e) => {
+  // Android back: close what's on top first (lead, filters, list), then step back through tabs
+  if ($("drawer").classList.contains("open") || $("filters").classList.contains("open")) { closeDetail(); return; }
+  if (typeof listOpen !== "undefined" && listOpen && $("closeList")) { $("closeList").click(); return; }
+  const v = e.state && e.state.bapView;
+  if (v && v !== setView._cur) setView(v, true);
+});
+$("guideBtn").onclick = openGuide;
+function openGuide() {
+  const g = [["Map pins and colors", "Each pin is a property with a public distress signal. The color is the lead type (see the legend). Tap a pin for a card, then Open for the full lead."],
+    ["Heat map", "Switches pins to a heat layer: brighter areas have more distressed properties. Use it to pick neighborhoods, then switch back to pins to open leads."],
+    ["Filters", "Pick a county, lead type, owner signals, auction date, price and minimum score, then tap Show results. With a county picked, Show list searches the whole county, not just the map view."],
+    ["Sort: Nearest to map center", "In the list, sorts leads by distance from the middle of the map. Center the map on yourself (📍) first."],
+    ["BAP score", "0 to 100. Higher means more signs the owner may want to sell (auction soon, taxes owed, absentee, inherited, long ownership)."],
+    ["Nationwide leads", "For areas BAP's free county data doesn't cover yet. Pulls pre-foreclosure, auction, probate, tax lien and vacant homes for any US county. Each property you save uses one nationwide lead from your plan."],
+    ["Draw area", "Outline a neighborhood on the map; the count and list then show only leads inside it."],
+    ["AI deal analysis", "Open a lead, tap Add to pipeline, then AI analysis at the top of the lead (or the Work this lead button). BAP pulls value, comps and owner phones, then writes a one-screen deal summary."],
+    ["Value & comps", "As-is value, rent and nearby comparable homes with beds, baths, year and size. Re-opening within 30 days is free."],
+    ["Offer and your assignment fee", "Max offer = ARV × rule % − repairs − your assignment fee. Your fee is the profit you keep when you assign the contract to a cash buyer. Numbers save automatically."],
+    ["Mail the owner", "Inside a pipeline lead, Mail owner sends a printed postcard or letter to the owner's mailing address with your number on it. Preview is free."],
+    ["What costs money", "Prices show on each button. Opening leads, filters, the map, previews and saved estimates are free."]];
+  const dl = el("dl", { class: "guide" }); for (const [k, v] of g) dl.append(el("dt", { text: k }), el("dd", { text: v }));
+  const box = $("detail"); box.textContent = ""; box.append(el("h2", { text: "How BAP works" }), dl);
+  $("drawer").classList.add("open"); $("drawer").setAttribute("aria-hidden", "false"); $("scrim").classList.remove("hidden");
+  try { history.pushState({ bapView: setView._cur, bapGuide: 1 }, ""); } catch (e) { /* ignore */ }
+}
 // the map search box drives the same text filter, then flies to what it found
 $("mapQ").addEventListener("keydown", async (e) => {
   if (e.key !== "Enter" || !mapReady) return;
@@ -2014,19 +2077,24 @@ $("heatBtn").onclick = () => {
 };
 
 /* ---------- search ---------- */
+let NEAREST_OK = true;   // server sorts by distance once lead_search takes p_cx/p_cy (migration 075); else falls back to score
 function rpcArgs(f, limit, offset) {
   return { p_counties: f.counties.length ? f.counties : null, p_kinds: f.kinds.length ? f.kinds : null,
     p_flags: f.flags.length ? f.flags : null, p_min_score: f.score, p_sale_days: f.sale ? +f.sale : null,
     p_q: f.q || null, p_sort: f.sort, p_limit: limit, p_offset: offset,
     p_price_min: f.sweet ? 100000 : null, p_price_max: f.sweet ? 200000 : null,
-    ...(leadMap && mapReady && listOpen ? (({ p_west, p_south, p_east, p_north }) => ({ p_west, p_south, p_east, p_north }))(mapArgs(f)) : {}),
+    ...(leadMap && mapReady && listOpen && !f.counties.length ? (({ p_west, p_south, p_east, p_north }) => ({ p_west, p_south, p_east, p_north }))(mapArgs(f)) : {}),
+    ...(f.sort === "nearest" && leadMap && mapReady ? { p_sort: "score", ...(NEAREST_OK ? { p_sort: "nearest", p_cx: leadMap.getCenter().lng, p_cy: leadMap.getCenter().lat } : {}) } : {}),
     p_area: (typeof drawArea !== "undefined" && drawArea) ? JSON.stringify(drawArea) : null };
 }
 async function search() {
   const f = filters();
   updateFacets(f);
   $("count").textContent = "Loading…";
-  const { data, error } = await sb.rpc("lead_search", rpcArgs(f, PAGE, state.page * PAGE));
+  let { data, error } = await sb.rpc("lead_search", rpcArgs(f, PAGE, state.page * PAGE));
+  if (error && NEAREST_OK && f.sort === "nearest" && /p_cx|function|schema cache/i.test(error.message)) {
+    NEAREST_OK = false; ({ data, error } = await sb.rpc("lead_search", rpcArgs(f, PAGE, state.page * PAGE)));
+  }
   if (error) { $("count").textContent = "Couldn't load leads"; $("rows").textContent = "";
     $("empty").textContent = error.message; $("empty").classList.remove("hidden"); return; }
   state.rows = data || []; state.total = state.rows.length ? Number(state.rows[0].total_count) : 0;
@@ -2072,7 +2140,18 @@ $("prev").onclick = () => { if (state.page > 0) { state.page--; search(); } };
 $("next").onclick = () => { state.page++; search(); };
 
 /* ---------- detail ---------- */
+function flashMsg(t) { let m = $("flashMsg"); if (!m) { m = el("div", { id: "flashMsg", class: "mapnote-empty", role: "status", style: "position:fixed;bottom:90px;z-index:40" }); document.body.append(m); }
+  m.textContent = t; m.classList.remove("hidden"); clearTimeout(flashMsg._t); flashMsg._t = setTimeout(() => m.classList.add("hidden"), 4000); }
+function fillKeyFacts(v) {   // backfill year / beds / baths / sq ft from the RentCast subject when county data lacks them
+  const kf = $("keyFacts"); if (!kf || !v || !v.subject) return;
+  const have = kf.textContent, s = v.subject, add = (t) => kf.append(el("span", { text: t }));
+  if (s.year && !/Built/.test(have)) add("Built " + s.year);
+  if (s.beds && !/ bd/.test(have)) add(s.beds + " bd"); if (s.baths && !/ ba/.test(have)) add(s.baths + " ba");
+  if (s.sqft && !/sq ft/.test(have)) add(Number(s.sqft).toLocaleString("en-US") + " sq ft");
+}
 async function openDetail(id) {
+  if (!$("drawer").classList.contains("open")) { try { history.pushState({ bapView: setView._cur, bapDetail: id }, ""); } catch (e) { /* ignore */ } }
+  try { localStorage.setItem("bapLastLead", JSON.stringify({ id, at: Date.now() })); } catch (e) { /* ignore */ }
   const box = $("detail"); box.textContent = "Loading…";
   $("drawer").classList.add("open"); $("drawer").setAttribute("aria-hidden", "false"); $("scrim").classList.remove("hidden");
   const { data, error } = await sb.rpc("lead_detail", { p_id: id });
@@ -2082,6 +2161,23 @@ async function openDetail(id) {
   window.__ownerName = title(p.owner_name); window.__prop = p;
   box.append(el("h2", { text: p.address_line || "Address unknown" }),
     el("div", { class: "sub", text: [[p.city, (p.state || "TX").trim(), p.zip].filter(Boolean).join(" "), p.county ? p.county + " County" : ""].filter(Boolean).join(", ") }));
+  const kf = el("div", { class: "keyfacts", id: "keyFacts" });
+  const PTYPE = { A1: "Single family", A11: "Single family", A12: "Townhome", A13: "Condo", A2: "Manufactured", A20: "Manufactured", M31: "Mobile home",
+    B11: "Apartments (5+ units)", B12: "Duplex / small multifamily", B2: "Duplex / small multifamily", C1: "Vacant lot", C11: "Vacant lot", C12: "Vacant lot", C14: "Vacant lot", E11: "Rural / acreage" };
+  const kfAdd = (t) => { if (t) kf.append(el("span", { text: t })); };
+  kfAdd(p.property_type || PTYPE[p.property_class] || null);
+  kfAdd(p.year_built ? "Built " + p.year_built : null);
+  kfAdd(p.beds ? p.beds + " bd" : null); kfAdd(p.baths ? p.baths + " ba" : null);
+  kfAdd(p.sqft ? Number(p.sqft).toLocaleString("en-US") + " sq ft" : null);
+  kfAdd(p.garage || (p.raw && p.raw.garage) ? "Garage " + (p.garage || p.raw.garage) : null);
+  box.append(kf);
+  const jump = el("div", { class: "jumpbar" });
+  const goTo = (label, txt) => el("button", { class: "ghost small", type: "button", text: label, onclick: () => {
+    const h = [...document.querySelectorAll("#detail h3")].find((x) => x.textContent.startsWith(txt));
+    if (h) h.scrollIntoView({ block: "start", behavior: "smooth" });
+    else { const pp0 = $("pipePanel"); if (pp0) pp0.scrollIntoView({ block: "start", behavior: "smooth" }); flashMsg("Add this lead to your pipeline first. That unlocks " + label + "."); } } });
+  jump.append(goTo("AI analysis", "AI deal analysis"), goTo("Value & comps", "Value & rent"), goTo("Offer", "Offer"), goTo("Mail owner", "Mail the owner"));
+  box.append(jump);
   const acc = data.access || {};   // the database decides what this account may see (owner, mailing address, house number)
   if (acc.locked) box.append(el("p", { class: "msg", style: "margin:8px 0", text:
     acc.reason === "demo" ? "Demo view: the owner, mailing address and house number are hidden. Create a free BAP account to unlock 10 leads a month."
@@ -2139,7 +2235,7 @@ async function openDetail(id) {
   }
   $("closeDrawer").focus();
 }
-function closeDetail() { $("drawer").classList.remove("open"); $("drawer").setAttribute("aria-hidden", "true"); $("scrim").classList.add("hidden"); $("filters").classList.remove("open"); }
+function closeDetail() { try { localStorage.removeItem("bapLastLead"); } catch (e) { /* ignore */ } document.body.classList.remove("sheet-open"); $("drawer").classList.remove("open"); $("drawer").setAttribute("aria-hidden", "true"); $("scrim").classList.add("hidden"); $("filters").classList.remove("open"); }
 $("closeDrawer").onclick = closeDetail; $("scrim").onclick = closeDetail;
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDetail(); });
 $("openFilters").onclick = () => { $("filters").classList.add("open"); $("scrim").classList.remove("hidden"); };
@@ -2153,7 +2249,9 @@ const STAGES = { new: "New", researching: "Researching", contacted: "Contacted",
   under_contract: "Under contract", marketing: "Marketing to buyers", assigned: "Assigned", closed: "Closed", dead: "Dead" };
 const ACTIVE = ["new", "researching", "contacted", "negotiating", "under_contract", "marketing", "assigned"];
 let pStage = "active";
-function setView(v) {
+function setView(v, fromHistory) {
+  if (!fromHistory && v && v !== setView._cur) { try { history.pushState({ bapView: v }, ""); } catch (e) { /* ignore */ } }
+  setView._cur = v; try { localStorage.setItem("bapLastView", JSON.stringify({ v, at: Date.now() })); } catch (e) { /* ignore */ }
   $("today").classList.toggle("hidden", v !== "today"); $("vToday").setAttribute("aria-pressed", String(v === "today")); if (v === "today") { loadToday(); ibBadge(); }
   $("mkt").classList.toggle("hidden", v !== "mkt"); $("vMkt").setAttribute("aria-pressed", String(v === "mkt")); if (v === "mkt") loadMarket();
   $("app").classList.toggle("hidden", v !== "leads"); $("pipe").classList.toggle("hidden", v !== "pipe");
@@ -3250,7 +3348,7 @@ async function renderDealPanel(leadId, propertyId, dp, pp) {
   const vbox = el("div");
   const vmsg = el("span", { class: "sub", role: "status" });
   const showVal = (v) => {
-    window.__lastAvm = v;
+    window.__lastAvm = v; fillKeyFacts(v);
     // the deal calculator may already be on screen: fill rent (and ARV) it couldn't know yet
     for (const [id, val] of [["mRent", v && v.rent], ["mArv", v && (v.high || v.value)]]) {
       const x = document.getElementById(id);
@@ -3265,11 +3363,14 @@ async function renderDealPanel(leadId, propertyId, dp, pp) {
     const comps = v.comps || [];
     if (comps.length) {
       const t = el("table", { style: "min-width:0;margin-top:8px;font-size:13px" },
-        el("thead", {}, el("tr", {}, el("th", { text: "Comparable sale" }), el("th", { class: "num", text: "Price" }),
-          el("th", { class: "num", text: "Sq ft" }), el("th", { class: "num", text: "Miles" }), el("th", { class: "num", text: "Match" }))));
+        el("thead", {}, el("tr", {}, el("th", { text: "Comparable" }), el("th", { class: "num", text: "Price" }),
+          el("th", { class: "num", text: "Bd/Ba" }), el("th", { class: "num", text: "Sq ft" }), el("th", { class: "num", text: "Built" }),
+          el("th", { class: "num", text: "Miles" }), el("th", { class: "num", text: "Match" }))));
       const tb = el("tbody");
       for (const c of comps) tb.append(el("tr", { style: "cursor:default" }, el("td", { text: c.address || "" }), el("td", { class: "num", text: money(c.price) }),
-        el("td", { class: "num", text: c.sqft ? Number(c.sqft).toLocaleString("en-US") : "" }), el("td", { class: "num", text: c.miles ?? "" }),
+        el("td", { class: "num", text: (c.beds ?? "?") + "/" + (c.baths ?? "?") }),
+        el("td", { class: "num", text: c.sqft ? Number(c.sqft).toLocaleString("en-US") : "" }), el("td", { class: "num", text: c.year ?? "" }),
+        el("td", { class: "num", text: c.miles ?? "" }),
         el("td", { class: "num", text: c.match != null ? c.match + "%" : "" })));
       t.append(tb); vbox.append(el("div", { class: "table-wrap", style: "margin-top:6px" }, t));
     }
@@ -3291,7 +3392,9 @@ async function renderDealPanel(leadId, propertyId, dp, pp) {
   const inp = (id, label, val) => el("label", {}, label, el("input", { id, inputmode: "decimal", value: val ?? "" }));
   const grid = el("div", { class: "grid4" },
     inp("oArv", "After-repair value (ARV)", o.arv ?? ""), inp("oRep", "Repairs", o.repairs ?? ""),
-    inp("oFee", "Your fee", o.fee ?? 10000), inp("oPct", "Rule (% of ARV)", o.pct ?? 70));
+    inp("oFee", "Your assignment fee", o.fee ?? 10000), inp("oPct", "Rule (% of ARV)", o.pct ?? 70));
+  dp.append(el("p", { class: "note", text: "Your assignment fee is the profit you keep when you sell (assign) the contract to a cash buyer. " +
+    "It comes out of your offer so the deal still works for that buyer: Max offer = ARV × rule % − repairs − your fee. Numbers save automatically." }));
   const mao = el("div", { class: "mao" });
   const calc = () => { const m = Math.round(num($("oArv").value) * num($("oPct").value) / 100 - num($("oRep").value) - num($("oFee").value));
     mao.textContent = num($("oArv").value) ? "Max offer " + money(Math.max(m, 0)) : "Enter the ARV to see your max offer"; return m; };
@@ -3299,12 +3402,21 @@ async function renderDealPanel(leadId, propertyId, dp, pp) {
   const omsg = el("span", { class: "sub", role: "status" });
   dp.append(grid, mao, el("div", { class: "row2" }, save, omsg));
   grid.addEventListener("input", calc); calc();
+  let autoT = null;
+  grid.addEventListener("input", () => { clearTimeout(autoT); omsg.textContent = "Saving…"; autoT = setTimeout(async () => {
+    if (!num($("oArv").value)) { omsg.textContent = ""; return; }
+    const r = await sb.rpc("save_offer", { p_lead: leadId, p_arv: num($("oArv").value), p_repairs: num($("oRep").value),
+      p_fee: num($("oFee").value), p_pct: num($("oPct").value) || 70 });
+    omsg.textContent = r.error ? "Couldn't save: " + r.error.message : "Saved";
+  }, 1200); });
+  save.textContent = "Save to history";
   save.onclick = async () => {
     const r = await sb.rpc("save_offer", { p_lead: leadId, p_arv: num($("oArv").value), p_repairs: num($("oRep").value),
       p_fee: num($("oFee").value), p_pct: num($("oPct").value) || 70 });
     omsg.textContent = r.error ? "Couldn't save: " + r.error.message : "Saved to the lead's history.";
     if (!r.error) renderPipePanel(propertyId, pp);
   };
+  await renderMailSection(leadId, propertyId, dp);
   await renderRehabSection(leadId, dp);
   renderModelSection(leadId, dp, o);
   // contracts
@@ -3665,6 +3777,59 @@ async function loadVault() {
 
 /* ---------- à la carte services + AI deal analysis ---------- */
 let svcCache = null;
+async function renderMailSection(leadId, propertyId, dp) {
+  dp.append(el("h3", { text: "Mail the owner", style: "margin-top:16px" }));
+  const svc = await servicePrices();
+  const pr = (k) => svc[k] ? " ($" + Number(svc[k].my_price).toFixed(2) + ")" : "";
+  const piece = el("select", {},
+    el("option", { value: "postcard_6x9", text: "6x9 postcard, handwritten style" + pr("mail_postcard_6x9") }),
+    el("option", { value: "postcard_4x6", text: "4x6 postcard" + pr("mail_postcard_4x6") }),
+    el("option", { value: "letter", text: "Letter" + pr("mail_letter") }));
+  const prev = el("button", { class: "ghost small", type: "button", text: "Preview (free)" });
+  const send = el("button", { class: "primary small", type: "button", text: "Mail it" });
+  const msg = el("span", { class: "sub", role: "status" });
+  const setup = el("div");
+  dp.append(el("p", { class: "sub", style: "margin:0 0 6px", text: "Printed and mailed to the owner's mailing address. Your phone number goes on it; replies come to you." }),
+    el("label", {}, "What to send", piece), el("div", { class: "row2", style: "margin-top:6px" }, prev, send, msg), setup);
+  const { data: mo } = await sb.from("org_mailing").select("*").maybeSingle();
+  const ready = (m) => m && m.enabled && !m.practice_mode && m.return_line1 && m.callback_phone && m.return_name;
+  prev.onclick = async () => {
+    msg.textContent = "Building preview…";
+    const r = await sb.functions.invoke("crm-mail?task=preview", { body: { property_id: propertyId } });
+    if (r.error) { msg.textContent = "Couldn't preview: " + r.error.message; return; }
+    msg.textContent = r.data.to ? "" : "Heads up: the owner's mailing address can't be read, so this one can't be mailed.";
+    const w = window.open("", "_blank"); if (w) { w.document.write(r.data.front + "<hr>" + r.data.back); w.document.close(); }
+  };
+  const doSend = async () => {
+    send.disabled = true; msg.textContent = "Adding to today's mail…";
+    const r = await sb.rpc("mail_queue", { p_property_ids: [propertyId], p_template: "cash_offer_1", p_piece: piece.value });
+    send.disabled = false;
+    if (r.error) { msg.textContent = r.error.message; return; }
+    msg.textContent = r.data.queued ? "Queued. It's printed and mailed within a business day; you'll see it in the lead's history." :
+      "Not queued: this owner has no readable mailing address, is marked do-not-mail, or was already mailed this piece.";
+  };
+  send.onclick = () => {
+    if (ready(mo)) return doSend();
+    // first time: collect the return address and the phone number printed on the card (never default to BAP's own)
+    setup.textContent = "";
+    const f = (id, label, val, ph) => el("label", {}, label, el("input", { id, value: val || "", placeholder: ph || "" }));
+    const m = mo || {};
+    setup.append(el("p", { class: "note", text: "One-time setup: this goes on every piece you mail." }),
+      el("div", { class: "grid4" }, f("mrName", "Your name (signs the card)", m.return_name), f("mrPhone", "Call/text number on the card", m.callback_phone, "(555) 555-5555"),
+        f("mrLine1", "Return street address", m.return_line1), f("mrCity", "City", m.return_city), f("mrState", "State", m.return_state, "TX"), f("mrZip", "ZIP", m.return_zip)));
+    const ok = el("button", { class: "primary small", type: "button", text: "Save and mail it" });
+    setup.append(ok);
+    ok.onclick = async () => {
+      const v = (id) => $(id).value.trim();
+      if (!v("mrName") || !v("mrPhone") || !v("mrLine1") || !v("mrCity") || !v("mrState") || !v("mrZip")) { msg.textContent = "Fill in every box first."; return; }
+      const { data: mem } = await sb.from("org_members").select("org_id").limit(1).single();
+      const r = await sb.from("org_mailing").upsert({ org_id: mem.org_id, enabled: true, practice_mode: false, return_name: v("mrName"), callback_phone: v("mrPhone"),
+        return_line1: v("mrLine1"), return_city: v("mrCity"), return_state: v("mrState").toUpperCase(), return_zip: v("mrZip"), default_piece: piece.value }).select().single();
+      if (r.error) { msg.textContent = /row-level|policy/i.test(r.error.message) ? "Only your team's owner or admin can set up mail." : "Couldn't save: " + r.error.message; return; }
+      Object.assign(m, r.data); setup.textContent = ""; await doSend();
+    };
+  };
+}
 async function servicePrices() {
   if (!svcCache) { const { data } = await sb.rpc("my_services"); svcCache = Object.fromEntries((data || []).map((x) => [x.key, x])); }
   return svcCache;
@@ -4083,7 +4248,7 @@ function renderAnalysis(box, a, at) {
 }
 let aiFlash = "";
 async function renderAiSection(leadId, dp, propertyId, pp) {
-  dp.append(el("h3", { text: "Work this lead" }));
+  dp.append(el("h3", { text: "AI deal analysis (Work this lead)" }));
   const box = el("div"); const msg = el("span", { class: "sub", role: "status", text: aiFlash }); aiFlash = "";
   const btn = el("button", { class: "primary small", type: "button", text: "Work this lead" });
   dp.append(el("p", { class: "sub", style: "margin:0 0 6px", text: "One tap: BAP pulls the value and comps, finds the owner's phones, then Claude writes a one-screen deal summary." }),
