@@ -402,6 +402,9 @@ tbody tr:last-child td { border-bottom: 0; }
     <p class="hint">Narrows the list: the owner must match every checked box. Owner details are only available in some counties so far.</p>
     <div class="checks" id="fFlags"></div>
     <p class="hint hidden" id="fFlagsNone" style="margin-top:6px">No owner details for the area on the map yet. Move the map to a county that has them (some Texas counties so far) or zoom out.</p>
+    <h2>Property type</h2>
+    <p class="hint">Single family, duplexes, mobile homes and more. Types come from county and state property records; homes whose type isn't known yet stay in the list unless you untick the last box.</p>
+    <div class="checks" id="fPtypes"></div>
     <h2>Auction date</h2>
     <select id="fSale">
       <option value="">Any time</option><option value="14">Within 14 days</option>
@@ -1198,6 +1201,11 @@ async function buildStaticFilters() {
   const note = $("fKindsNote");
   note.textContent = none.length ? "No leads yet for: " + none.join(", ") + ". These come from county court and land records; more sources are being added." : "";
   note.classList.toggle("hidden", !none.length);
+  const pt = $("fPtypes"); if (pt && !pt.childElementCount) {
+    for (const [v, t] of Object.entries(PTYPE_LABELS)) pt.append(el("label", {}, el("input", { type: "checkbox", value: v, "data-f": "ptype" }), t));
+    const u = el("input", { type: "checkbox", value: "unknown", id: "fPtypeUnknown" }); u.checked = true;
+    pt.append(el("label", { title: "Keep homes whose type BAP hasn't found yet" }, u, "Include homes with type not known yet"));
+  }
   const f = $("fFlags"); if (!f.childElementCount)
     for (const [v, t] of Object.entries(FLAGS)) f.append(el("label", {}, el("input", { type: "checkbox", value: v, "data-f": "flag" }), t,
       el("span", { class: "n" })));
@@ -1223,9 +1231,17 @@ async function updateFacets(f) {
   $("fFlagsNone").classList.toggle("hidden", flags > 0 || checked("fFlags").length > 0);
 }
 const checked = (box) => [...$(box).querySelectorAll("input:checked")].map((i) => i.value);
+const PTYPE_LABELS = { sfr: "Single family", mf_small: "Duplex to fourplex (2-4 units)", apartments: "Apartments (5+ units)", condo: "Condo or townhome",
+  mobile: "Mobile or manufactured", land: "Land or vacant lot", commercial: "Commercial", other: "Other" };
+function ptypeSel() {   // [] = any type; otherwise the picked types plus 'unknown' when that box is ticked
+  const box = $("fPtypes"); if (!box) return [];
+  const picked = [...box.querySelectorAll('input[data-f="ptype"]:checked')].map((i) => i.value);
+  if (!picked.length) return [];
+  return $("fPtypeUnknown") && $("fPtypeUnknown").checked ? [...picked, "unknown"] : picked;
+}
 function filters() {
   return { counties: checked("fCounties"), kinds: checked("fKinds"), flags: checked("fFlags"),
-    sale: $("fSale").value, score: +$("fScore").value, q: $("fQ").value.trim(), sort: $("sort").value, sweet: $("fSweet").checked,
+    sale: $("fSale").value, score: +$("fScore").value, q: $("fQ").value.trim(), sort: $("sort").value, sweet: $("fSweet").checked, ptypes: ptypeSel(),
     area: (typeof drawArea !== "undefined" && drawArea) ? drawArea : null };
 }
 function applyFilters(f) {
@@ -1233,6 +1249,8 @@ function applyFilters(f) {
     $(box).querySelectorAll("input").forEach((i) => { i.checked = (vals || []).includes(i.value); });
   if (window.renderCountyChips) renderCountyChips();
   $("fSale").value = f.sale || ""; $("fSweet").checked = !!f.sweet;
+  if ($("fPtypes")) { const pts = f.ptypes || []; $("fPtypes").querySelectorAll('input[data-f="ptype"]').forEach((i) => { i.checked = pts.includes(i.value); });
+    if ($("fPtypeUnknown")) $("fPtypeUnknown").checked = !pts.length || pts.includes("unknown"); }
   if (typeof drawArea !== "undefined") { drawArea = f.area || null; drawing = null; redrawArea(); setDrawUi(); } $("fScore").value = f.score || 0; $("fScoreVal").textContent = f.score || 0;
   $("fQ").value = f.q || ""; $("sort").value = f.sort || "score";
 }
@@ -1651,13 +1669,14 @@ async function renderPublicDeal(slug) {
 const KIND_COLORS = { pre_foreclosure: "#d1342f", foreclosure_sale: "#8e1b1b", tax_delinquent: "#e07b00", tax_sale: "#7b3fbf",
   code_violation: "#2a78d6", probate: "#0f8b8d", vacant: "#6b7280", other: "#a16207", owner: "#64748b" };
 let leadMap = null, mapTimer = null, listOpen = false, mapReady = false;
-const filtersActive = (f) => !!(f.counties.length || f.kinds.length || f.flags.length || f.score > 0 || f.sale || f.q || f.sweet || (typeof drawArea !== "undefined" && drawArea));
+const filtersActive = (f) => !!(f.counties.length || f.kinds.length || f.flags.length || f.score > 0 || f.sale || f.q || f.sweet || (f.ptypes && f.ptypes.length) || (typeof drawArea !== "undefined" && drawArea));
 function mapArgs(f) {
   const b = leadMap.getBounds();
   return { p_west: b.getWest(), p_south: b.getSouth(), p_east: b.getEast(), p_north: b.getNorth(), p_zoom: Math.round(leadMap.getZoom()),
     p_counties: f.counties.length ? f.counties : null, p_kinds: f.kinds.length ? f.kinds : null, p_flags: f.flags.length ? f.flags : null,
     p_min_score: f.score, p_sale_days: f.sale ? +f.sale : null, p_q: f.q || null,
-    p_price_min: f.sweet ? 100000 : null, p_price_max: f.sweet ? 200000 : null, p_area: drawArea ? JSON.stringify(drawArea) : null };
+    p_price_min: f.sweet ? 100000 : null, p_price_max: f.sweet ? 200000 : null, p_area: drawArea ? JSON.stringify(drawArea) : null,
+    ...(f.ptypes && f.ptypes.length ? { p_ptypes: f.ptypes } : {}) };
 }
 function shortMoney(v) { if (v == null) return ""; const n = Number(v); return n >= 1e6 ? "$" + (n / 1e6).toFixed(1) + "M" : "$" + Math.round(n / 1000) + "K"; }
 function mapFeatures(data) {
@@ -1785,6 +1804,7 @@ function openGuide() {
   const g = [["Map pins and colors", "Each pin is a property with a public distress signal. The color is the lead type (see the legend). Tap a pin for a card, then Open for the full lead."],
     ["Heat map", "Switches pins to a heat layer: brighter areas have more distressed properties. Use it to pick neighborhoods, then switch back to pins to open leads."],
     ["Filters", "Pick a county, lead type, owner signals, auction date, price and minimum score, then tap Show results. With a county picked, Show list searches the whole county, not just the map view."],
+    ["Property type", "In Filters, tick single family, duplex to fourplex, apartments, condo, mobile home or land. Types come from county and state property records and fill in automatically over time; untick the last box to hide homes whose type isn't known yet. Nationwide leads let you pick a type too."],
     ["Sort: Nearest to map center", "In the list, sorts leads by distance from the middle of the map. Center the map on yourself (📍) first."],
     ["BAP score", "0 to 100. Higher means more signs the owner may want to sell (auction soon, taxes owed, absentee, inherited, long ownership)."],
     ["Nationwide leads", "For areas BAP's free county data doesn't cover yet. Pulls pre-foreclosure, auction, probate, tax lien and vacant homes for any US county. Each property you save uses one nationwide lead from your plan."],
@@ -2085,7 +2105,8 @@ function rpcArgs(f, limit, offset) {
     p_price_min: f.sweet ? 100000 : null, p_price_max: f.sweet ? 200000 : null,
     ...(leadMap && mapReady && listOpen && !f.counties.length ? (({ p_west, p_south, p_east, p_north }) => ({ p_west, p_south, p_east, p_north }))(mapArgs(f)) : {}),
     ...(f.sort === "nearest" && leadMap && mapReady ? { p_sort: "score", ...(NEAREST_OK ? { p_sort: "nearest", p_cx: leadMap.getCenter().lng, p_cy: leadMap.getCenter().lat } : {}) } : {}),
-    p_area: (typeof drawArea !== "undefined" && drawArea) ? JSON.stringify(drawArea) : null };
+    p_area: (typeof drawArea !== "undefined" && drawArea) ? JSON.stringify(drawArea) : null,
+    ...(f.ptypes && f.ptypes.length ? { p_ptypes: f.ptypes } : {}) };
 }
 async function search() {
   const f = filters();
@@ -2165,7 +2186,7 @@ async function openDetail(id) {
   const PTYPE = { A1: "Single family", A11: "Single family", A12: "Townhome", A13: "Condo", A2: "Manufactured", A20: "Manufactured", M31: "Mobile home",
     B11: "Apartments (5+ units)", B12: "Duplex / small multifamily", B2: "Duplex / small multifamily", C1: "Vacant lot", C11: "Vacant lot", C12: "Vacant lot", C14: "Vacant lot", E11: "Rural / acreage" };
   const kfAdd = (t) => { if (t) kf.append(el("span", { text: t })); };
-  kfAdd(p.property_type || PTYPE[p.property_class] || null);
+  kfAdd((p.ptype && PTYPE_LABELS[p.ptype]) || p.property_type || PTYPE[p.property_class] || null);
   kfAdd(p.year_built ? "Built " + p.year_built : null);
   kfAdd(p.beds ? p.beds + " bd" : null); kfAdd(p.baths ? p.baths + " ba" : null);
   kfAdd(p.sqft ? Number(p.sqft).toLocaleString("en-US") + " sq ft" : null);
@@ -2618,6 +2639,10 @@ function openNational() {
   wrap.onclick = (e) => { if (e.target === wrap) wrap.remove(); };
   const where = natArea();
   const type = el("select", {}, ...NAT_TYPES.map(([v, t]) => el("option", { value: v, text: t })));
+  const ptype = el("select", {}, el("option", { value: "any", text: "Any property type" }),
+    ...[["sfr", "Single family"], ["mf_small", "Duplex to fourplex (2-4 units)"], ["apartments", "Apartments (5+ units)"], ["condo", "Condo or townhome"],
+        ["mobile", "Mobile or manufactured"], ["land", "Land or vacant lot"]].map(([v, t]) => el("option", { value: v, text: t })));
+  { const fp = (filters().ptypes || []).filter((x) => x !== "unknown"); if (fp.length === 1 && [...ptype.options].some((o) => o.value === fp[0])) ptype.value = fp[0]; }
   const max = el("select", {}, ...[25, 50, 100, 250].map((n) => el("option", { value: String(n), text: String(n) + " properties" })));
   max.value = "50";
   const check = el("button", { type: "button", class: "primary small", text: "Check how many (free)" });
@@ -2627,15 +2652,15 @@ function openNational() {
   card.append(el("div", { class: "row2", style: "justify-content:space-between;align-items:center" }, el("h3", { style: "margin:0", text: "Nationwide leads" }), close),
     el("p", { class: "sub", text: "Court, county recorder and assessor records for any US county: foreclosures, auctions, probate, liens and owner details. " +
       (where ? "Searching " + where.label + ". Zoom to a city or county, or type a 5-digit ZIP in the map search first." : "Open the map first.") }),
-    el("label", {}, "Lead type", type), el("label", { style: "margin-top:8px" }, "How many to add", max),
+    el("label", {}, "Lead type", type), el("label", { style: "margin-top:8px" }, "Property type", ptype), el("label", { style: "margin-top:8px" }, "How many to add", max),
     el("div", { class: "row2", style: "gap:8px;margin-top:10px;flex-wrap:wrap" }, check, pull), msg, out);
   wrap.append(card); document.body.append(wrap);
   let last = null;
-  type.onchange = () => { pull.classList.add("hidden"); msg.textContent = ""; };
+  type.onchange = ptype.onchange = () => { pull.classList.add("hidden"); msg.textContent = ""; };
   check.onclick = async () => {
     if (!where) { msg.textContent = "Open the map first."; return; }
     check.disabled = true; msg.textContent = "Checking…"; out.textContent = "";
-    const r = await natCall({ mode: "count", type: type.value, area: where.area });
+    const r = await natCall({ mode: "count", type: type.value, area: where.area, ptype: ptype.value });
     check.disabled = false;
     if (r.error) { msg.textContent = r.error; return; }
     if (r.practice) { msg.textContent = "Practice mode: no real search was run."; return; }
@@ -2651,7 +2676,7 @@ function openNational() {
   max.onchange = () => { if (last) check.onclick(); };
   pull.onclick = async () => {
     pull.disabled = true; msg.textContent = "Adding properties…";
-    const r = await natCall({ mode: "pull", type: type.value, area: where.area, max: Number(max.value) });
+    const r = await natCall({ mode: "pull", type: type.value, area: where.area, max: Number(max.value), ptype: ptype.value });
     pull.disabled = false;
     if (r.error) { msg.textContent = r.error; return; }
     if (r.practice) { msg.textContent = "Practice mode: nothing was added or charged."; return; }
@@ -2670,7 +2695,7 @@ function openNational() {
     const list = el("div", { style: "display:grid;gap:6px;margin-top:8px" });
     for (const h of homes.slice(0, 250)) {
       const where2 = [h.address_line, [h.city, h.state].filter(Boolean).join(", ")].filter(Boolean).join(", ") || "Property";
-      const facts = [h.owner_name ? "Owner: " + title(h.owner_name) : "", h.est_value ? "Value " + money(h.est_value) : "",
+      const facts = [h.ptype && PTYPE_LABELS[h.ptype] ? PTYPE_LABELS[h.ptype] : "", h.owner_name ? "Owner: " + title(h.owner_name) : "", h.est_value ? "Value " + money(h.est_value) : "",
         h.est_equity_pct != null ? Math.round(h.est_equity_pct) + "% equity" : "", h.out_of_state ? "out-of-state owner" : h.absentee ? "absentee owner" : ""].filter(Boolean).join(" · ");
       const open = el("button", { type: "button", class: "small", text: "Open" });
       open.onclick = () => { wrap.remove(); openDetail(h.id); };
