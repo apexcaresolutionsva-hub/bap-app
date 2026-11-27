@@ -106,6 +106,16 @@ header.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; d
 .mao { font-size: 22px; font-weight: 700; margin: 4px 0 10px; }
 .ctr { border-top: 1px solid var(--line); padding: 10px 0; font-size: 14px; }
 .ctr .row2 { margin: 6px 0 0; }
+.lvGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin: 0 0 18px; }
+.lvCard { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); overflow: hidden; display: grid; }
+.lvThumb { position: relative; aspect-ratio: 16 / 9; background: #0d1a2e; border: 0; padding: 0; cursor: pointer; display: block; width: 100%; }
+.lvThumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.lvThumb .lvPlay { position: absolute; inset: 0; margin: auto; width: 56px; height: 56px; border-radius: 50%; background: rgba(0,0,0,.65); color: #fff; font-size: 22px; display: flex; align-items: center; justify-content: center; }
+.lvThumb .lvLen { position: absolute; right: 6px; bottom: 6px; background: rgba(0,0,0,.75); color: #fff; font-size: 12px; padding: 1px 6px; border-radius: 4px; }
+.lvCard iframe { width: 100%; aspect-ratio: 16 / 9; border: 0; display: block; }
+.lvBody { padding: 10px 12px 12px; display: grid; gap: 6px; }
+.lvBody b { font-size: 14px; }
+.lvBody label { font-size: 13px; display: flex; gap: 6px; align-items: center; color: var(--muted); cursor: pointer; }
 .badge { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 10px; background: var(--code-bg); color: var(--code); }
 .badge.signed { background: #e3f4ea; color: var(--ok); }
 .badge.warn { background: var(--sale-bg); color: var(--sale); }
@@ -365,6 +375,7 @@ tbody tr:last-child td { border-bottom: 0; }
     <button type="button" id="vLend" class="sec" aria-pressed="false">Lenders</button>
     <button type="button" id="vCrew" class="sec" aria-pressed="false">Contractors</button>
     <button type="button" id="vSvc" class="sec" aria-pressed="false">Services</button>
+    <button type="button" id="vLearn" class="sec" aria-pressed="false">Training</button>
     <button type="button" id="vAcct" class="sec" aria-pressed="false">Account</button>
     <button type="button" id="vMore" class="moreBtn" aria-pressed="false" aria-haspopup="menu" aria-expanded="false">More</button>
   </nav>
@@ -596,6 +607,12 @@ tbody tr:last-child td { border-bottom: 0; }
     <div class="empty hidden" id="bEmpty">No buyers yet. Tip: the best cash buyers are the ones already buying near your deals. Look up recent cash sales in your area and add those buyers here.</div></div>
 </section>
 <section class="hidden" id="dealPublic" style="max-width:760px;margin:24px auto;padding:0 16px" aria-label="Deal"></section>
+
+<section class="pipe hidden" id="learn" aria-label="Training">
+  <div class="toolbar"><span class="count">Training</span><span class="spacer"></span><span class="sub" id="learnProg" role="status"></span></div>
+  <p class="sub" style="margin:0 0 12px">Short videos that walk you through every step of a deal in BAP. Watch them in order, then try each step in Practice mode, where nothing is sent or charged.</p>
+  <div id="learnList"></div>
+</section>
 
 <section class="pipe hidden" id="acct" aria-label="Account">
   <div class="toolbar"><span class="count">Account</span><span class="spacer"></span></div>
@@ -1042,7 +1059,7 @@ let state = { page: 0, total: 0, rows: [] };
 let signUp = false;
 
 /* ---------- auth ---------- */
-function showAuth() { $("auth").classList.remove("hidden"); $("app").classList.add("hidden"); $("pipe").classList.add("hidden"); $("deals").classList.add("hidden"); $("svc").classList.add("hidden"); $("acct").classList.add("hidden"); $("lend").classList.add("hidden"); $("buy").classList.add("hidden"); $("crew").classList.add("hidden"); $("inbox").classList.add("hidden"); clearInterval(ibTimer); $("views").classList.add("hidden"); $("signout").classList.add("hidden"); $("practiceBtn").classList.add("hidden"); $("who").textContent = ""; }
+function showAuth() { $("auth").classList.remove("hidden"); $("app").classList.add("hidden"); $("pipe").classList.add("hidden"); $("deals").classList.add("hidden"); $("svc").classList.add("hidden"); $("acct").classList.add("hidden"); $("learn").classList.add("hidden"); $("lend").classList.add("hidden"); $("buy").classList.add("hidden"); $("crew").classList.add("hidden"); $("inbox").classList.add("hidden"); clearInterval(ibTimer); $("views").classList.add("hidden"); $("signout").classList.add("hidden"); $("practiceBtn").classList.add("hidden"); $("who").textContent = ""; }
 let shownFor = null;
 // first-touch marketing attribution: which post / ad / site brought this person (stored once per company)
 (function captureAttr() {
@@ -2278,6 +2295,7 @@ function setView(v, fromHistory) {
   $("app").classList.toggle("hidden", v !== "leads"); $("pipe").classList.toggle("hidden", v !== "pipe");
   $("deals").classList.toggle("hidden", v !== "deals"); $("svc").classList.toggle("hidden", v !== "svc");
   $("acct").classList.toggle("hidden", v !== "acct"); $("vAcct").setAttribute("aria-pressed", String(v === "acct")); if (v === "acct") renderAccount();
+  $("learn").classList.toggle("hidden", v !== "learn"); $("vLearn").setAttribute("aria-pressed", String(v === "learn")); if (v === "learn") renderLearn();
   $("lend").classList.toggle("hidden", v !== "lend"); $("vLend").setAttribute("aria-pressed", String(v === "lend")); if (v === "lend") loadLenders();
   $("crew").classList.toggle("hidden", v !== "crew"); $("vCrew").setAttribute("aria-pressed", String(v === "crew")); if (v === "crew") { proFinder("contractor", $("crewFinder")); contactsPanel("contractor", $("crewContacts")); }
   $("buy").classList.toggle("hidden", v !== "buy"); $("vBuy").setAttribute("aria-pressed", String(v === "buy")); if (v === "buy") { loadBuyers(); if (!$("bForm").childElementCount) buyerForm(null), $("bPanel").open = false; }
@@ -2285,7 +2303,7 @@ function setView(v, fromHistory) {
   $("vLeads").setAttribute("aria-pressed", String(v === "leads")); $("vPipe").setAttribute("aria-pressed", String(v === "pipe"));
   $("vDeals").setAttribute("aria-pressed", String(v === "deals"));
   $("inbox").classList.toggle("hidden", v !== "inbox"); $("vInbox").setAttribute("aria-pressed", String(v === "inbox")); if (v === "inbox") { loadInbox(); ibBadge(); }
-  const secV = { deals: "vDeals", buy: "vBuy", mkt: "vMkt", lend: "vLend", crew: "vCrew", svc: "vSvc", acct: "vAcct" };
+  const secV = { deals: "vDeals", buy: "vBuy", mkt: "vMkt", lend: "vLend", crew: "vCrew", svc: "vSvc", learn: "vLearn", acct: "vAcct" };
   $("vMore").setAttribute("aria-pressed", String(v in secV));
   for (const b of document.querySelectorAll("#moreSheet button")) b.setAttribute("aria-current", String(b.dataset.for === secV[v]));
   if (!PRACTICE && v && v !== setView._last) { setView._last = v; sb.rpc("log_tab", { p_tab: v }).then(() => {}, () => {}); }  // real usage, to keep this order honest
@@ -2398,6 +2416,50 @@ $("mPostBtn").onclick = () => {
 };
 $("vSvc").onclick = () => setView("svc");
 $("vAcct").onclick = () => setView("acct");
+$("vLearn").onclick = () => setView("learn");
+/* ---------- Training: BAP's how-to videos (YouTube, unlisted). Watched marks stay in this browser only. ---------- */
+const LEARN = [
+  { h: "Start here", items: [["ECrrHzPxFVQ", "How to wholesale real estate, step by step", "9:33"]] },
+  { h: "BAP step by step", items: [
+    ["M_nZ_lTmoqk", "Step 1: Welcome to BAP", "0:57"], ["PPA8ENwHGy0", "Step 2: Find leads on the map", "0:57"],
+    ["UPF8VB2a4Lk", "Step 3: Nationwide leads", "0:52"], ["sXAuyVcNtOU", "Step 4: Work a lead", "0:57"],
+    ["d8Xkf_LT7uY", "Step 5: Pipeline and follow-ups", "0:57"], ["YTVnQ2EuhEo", "Step 6: Reach the owner", "0:55"],
+    ["_8C-_9Cfl9Q", "Step 7: Contracts and e-sign", "0:56"], ["WVhUSv0FZvo", "Step 8: Lenders and deal numbers", "0:51"],
+    ["ey-sAHI5Ftc", "Step 9: Buyers and deals for sale", "0:50"], ["iMAOrIV8EfU", "Step 10: Contractors, services and plans", "1:00"]] },
+  { h: "Talking to sellers", items: [["Kzju0kCpXPI", "Cold calling script, word for word", "9:49", "2026-11-30T16:00:00Z"]] },
+  { h: "Team only", team: true, items: [["V8Qd0gYBDGk", "Selling BAP: pitch, playbook and objections", "7:44"]] },
+];
+const learnSeen = () => { try { return JSON.parse(localStorage.getItem("bapLearnSeen") || "{}"); } catch (e) { return {}; } };
+async function renderLearn() {
+  const box = $("learnList"); box.textContent = "";
+  let team = false;
+  try { team = await isBapOwner(); if (!team) { const { data: e } = await sb.rpc("my_employee"); team = !!e; } } catch (e) { /* members see the member videos */ }
+  const seen = learnSeen(); let total = 0, done = 0;
+  const prog = () => { $("learnProg").textContent = done + " of " + total + " watched"; };
+  for (const g of LEARN) {
+    if (g.team && !team) continue;
+    const grid = el("div", { class: "lvGrid" });
+    box.append(el("h3", { style: "margin:4px 0 8px;font-size:15px", text: g.h }), grid);
+    for (const [id, title, len, from] of g.items) {
+      total++; if (seen[id]) done++;
+      const later = from && Date.now() < Date.parse(from);
+      const thumb = el("button", { type: "button", class: "lvThumb", "aria-label": "Play " + title },
+        el("img", { src: "https://i.ytimg.com/vi/" + id + "/hqdefault.jpg", alt: "", loading: "lazy" }),
+        el("span", { class: "lvPlay", "aria-hidden": "true", text: "\u25B6" }), el("span", { class: "lvLen", text: len }));
+      const chk = el("input", { type: "checkbox" }); chk.checked = !!seen[id];
+      chk.onchange = () => { const s2 = learnSeen(); if (chk.checked) s2[id] = 1; else delete s2[id]; try { localStorage.setItem("bapLearnSeen", JSON.stringify(s2)); } catch (e) { /* ignore */ } done += chk.checked ? 1 : -1; prog(); };
+      const card = el("div", { class: "lvCard" }, thumb, el("div", { class: "lvBody" }, el("b", { text: title }),
+        later ? el("span", { class: "sub", text: "Available " + new Date(from).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) }) : null,
+        el("label", {}, chk, "Watched")));
+      thumb.onclick = () => {
+        if (later) return;
+        thumb.replaceWith(el("iframe", { src: "https://www.youtube-nocookie.com/embed/" + id + "?autoplay=1&rel=0&modestbranding=1", title, allow: "autoplay; encrypted-media; picture-in-picture; fullscreen", allowfullscreen: "", loading: "lazy" }));
+      };
+      grid.append(card);
+    }
+  }
+  prog();
+}
 $("who").style.cursor = "pointer"; $("who").title = "Open your account"; $("who").onclick = () => setView("acct");
 async function renderAccount() {
   const box = $("acctSign"); box.textContent = "";
